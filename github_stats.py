@@ -545,11 +545,44 @@ def get_lookback_days():
             print("  Please enter a valid number.")
 
 
+def choose_team(teams):
+    """Prompt the user to run for all teams or a specific one.
+
+    Returns (run_members, run_teams) where run_teams is the subset of
+    teams to include in the Excel output.
+    """
+    team_names = list(teams.keys())
+    all_members = [u for members in teams.values() for u in members]
+
+    if len(team_names) <= 1:
+        return all_members, teams
+
+    print(f"\nTeams found: {len(team_names)}")
+    print(f"  0. All teams ({len(all_members)} members)")
+    for i, name in enumerate(team_names, 1):
+        print(f"  {i}. {name} ({len(teams[name])} members)")
+
+    while True:
+        raw = input(f"\nRun report for which team? [0 = All]: ").strip()
+        if not raw or raw == "0":
+            return all_members, teams
+        try:
+            choice = int(raw)
+            if 1 <= choice <= len(team_names):
+                picked = team_names[choice - 1]
+                picked_teams = OrderedDict([(picked, teams[picked])])
+                return teams[picked], picked_teams
+            print(f"  Please enter a number between 0 and {len(team_names)}.")
+        except ValueError:
+            print("  Please enter a valid number.")
+
+
 def main():
     token = get_token()
     org = load_org()
     validate_token(token, org)
-    team_members, teams = load_team_members()
+    _, teams = load_team_members()
+    team_members, run_teams = choose_team(teams)
     lookback_days = get_lookback_days()
 
     headers = {
@@ -564,6 +597,7 @@ def main():
     working_days = count_working_days(since.date(), now.date())
 
     total = len(team_members)
+    scope_label = "All teams" if len(run_teams) > 1 else list(run_teams.keys())[0]
     search_calls_per_user = 5
     est_min = round(
         (total * search_calls_per_user * SEARCH_API_DELAY_SECONDS
@@ -571,7 +605,7 @@ def main():
         1,
     )
 
-    print(f"\nGitHub Stats for {total} team members")
+    print(f"\nGitHub Stats for {total} team members  ({scope_label})")
     print(f"Org:            {org}")
     print(f"Period:         {since_date} → {today_date}  "
           f"({lookback_days} calendar days, {working_days} working days)")
@@ -657,8 +691,10 @@ def main():
     output_file = f"github_stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     wb = Workbook()
 
-    sheet_sets = [("All", results)]
-    for team_name, members in teams.items():
+    sheet_sets = []
+    if len(run_teams) > 1:
+        sheet_sets.append(("All", results))
+    for team_name, members in run_teams.items():
         team_results = [results_by_user[u] for u in members if u in results_by_user]
         team_results.sort(key=lambda r: r["total_commits"], reverse=True)
         sheet_sets.append((team_name, team_results))
