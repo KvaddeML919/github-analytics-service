@@ -17,6 +17,8 @@ ORG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "org.txt")
 
 DEFAULT_LOOKBACK_DAYS = 90
 
+MYT = timezone(timedelta(hours=8))
+
 SEARCH_API_DELAY_SECONDS = 2.5
 COMMIT_API_DELAY_SECONDS = 1.0
 LINE_STATS_SAMPLE_SIZE = 5
@@ -289,7 +291,7 @@ def compute_avg_coding_days(commit_items):
         date_str = committer.get("date")
         if not date_str:
             continue
-        dt = _parse_iso(date_str).date()
+        dt = _parse_iso(date_str).astimezone(MYT).date()
         if dt.weekday() < 5:
             weekday_dates.add(dt)
 
@@ -302,6 +304,30 @@ def compute_avg_coding_days(commit_items):
 
     coding_days_per_week = [len(days) for days in weeks.values()]
     return round(sum(coding_days_per_week) / len(coding_days_per_week), 1)
+
+
+def compute_weekend_commits(commit_items, start_date, end_date):
+    """Return (total_weekend_commits, avg_commits_per_weekend) in MYT."""
+    weekend_commit_count = 0
+    for item in commit_items:
+        committer = item.get("commit", {}).get("committer", {})
+        date_str = committer.get("date")
+        if not date_str:
+            continue
+        dt = _parse_iso(date_str).astimezone(MYT).date()
+        if dt.weekday() >= 5:
+            weekend_commit_count += 1
+
+    weekends = 0
+    current = start_date
+    while current <= end_date:
+        if current.weekday() == 5:
+            weekends += 1
+        current += timedelta(days=1)
+    weekends = max(weekends, 1)
+
+    avg = round(weekend_commit_count / weekends, 2) if weekend_commit_count else 0.0
+    return weekend_commit_count, avg
 
 
 def count_active_repos(commit_items):
@@ -394,7 +420,7 @@ def main():
         "Accept": "application/vnd.github.v3+json",
     }
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(MYT)
     since = now - timedelta(days=lookback_days)
     since_date = since.strftime("%Y-%m-%d")
     today_date = now.strftime("%Y-%m-%d")
@@ -442,6 +468,9 @@ def main():
         merge_rate = round(merged_count / pr_count * 100, 1) if pr_count else 0.0
         avg_merge_hrs = compute_avg_merge_hours(merged_items)
         avg_coding_days = compute_avg_coding_days(commit_items)
+        wknd_commits, avg_wknd_commits = compute_weekend_commits(
+            commit_items, since.date(), now.date(),
+        )
         active_repos = count_active_repos(commit_items)
 
         additions = deletions = sampled = 0
@@ -462,6 +491,8 @@ def main():
             "total_commits": commit_count,
             "commits_per_working_day": commits_per_wd,
             "avg_coding_days_per_week": avg_coding_days,
+            "weekend_commits": wknd_commits,
+            "avg_commits_per_weekend": avg_wknd_commits,
             "active_repos": active_repos,
             "reviews_given": reviews_given,
             "prs_commented_on": prs_commented,
@@ -474,7 +505,8 @@ def main():
         coding_str = f"{avg_coding_days}" if avg_coding_days is not None else "N/A"
         print(f"  Activity:  PRs: {pr_count} ({prs_per_wd}/wd, {merge_rate}% merged) "
               f"| Commits: {commit_count} ({commits_per_wd}/wd) "
-              f"| Coding days/wk: {coding_str}")
+              f"| Coding days/wk: {coding_str} "
+              f"| Weekend: {wknd_commits} ({avg_wknd_commits}/wknd)")
         print(f"  Quality:   Avg merge time: {merge_str} "
               f"| Active repos: {active_repos} "
               f"| Avg lines/commit: +{avg_add}/-{avg_del}")
@@ -505,7 +537,8 @@ def main():
     print(f"\n{'─' * 80}")
     print("ACTIVITY")
     hdr1 = (f"{'Username':<20} {'PRs':>5} {'PRs/wd':>7} {'Merged%':>8} "
-            f"{'Commits':>8} {'Cmts/wd':>8} {'CdDays/wk':>10}")
+            f"{'Commits':>8} {'Cmts/wd':>8} {'CdDays/wk':>10} "
+            f"{'WkndCmts':>9} {'Cmts/wknd':>10}")
     print(hdr1)
     print("─" * len(hdr1))
     for r in results:
@@ -517,7 +550,9 @@ def main():
               f"{r['merge_rate_pct']:>7.1f}% "
               f"{r['total_commits']:>8} "
               f"{r['commits_per_working_day']:>8} "
-              f"{cd_str:>10}")
+              f"{cd_str:>10} "
+              f"{r['weekend_commits']:>9} "
+              f"{r['avg_commits_per_weekend']:>10}")
 
     # ── Table 2: Collaboration & Quality ────────────────────────────────────
     print(f"\n{'─' * 80}")
