@@ -29,9 +29,12 @@ Double-click **"GitHub Stats"** on your Desktop. It will:
 
 1. Ask you to paste your GitHub token (or pick it up from `GITHUB_TOKEN` env var if set)
 2. Validate the token -- clear error messages if scopes are missing or SSO isn't configured
-3. Ask how many days to look back (default: 90)
-4. Run the stats and display results
-5. Export a timestamped Excel file (`.xlsx`) to `~/github-stats/` with an "All" sheet plus one sheet per team
+3. Show your teams and ask whether to run for **all teams** or a **specific team**
+4. Ask how many days to look back (default: 90)
+5. Run the stats and display results
+6. Export a timestamped Excel file (`.xlsx`) to `~/github-stats/`
+   - **All teams** → "All" sheet + one sheet per team
+   - **Specific team** → single sheet for that team only (faster, fewer API calls)
 
 ## Metrics
 
@@ -55,9 +58,9 @@ Double-click **"GitHub Stats"** on your Desktop. It will:
 - **Two summary tables** (sorted by most commits):
   - **Activity** -- PRs, PRs/wd, Merged%, Commits, Cmts/wd, CdDays/wk
   - **Collaboration & Quality** -- Reviews, Commented, Merge(h), Repos, +Lines/c, -Lines/c
-- **A timestamped Excel file** (e.g. `github_stats_20260318_120000.xlsx`) with:
-  - An **"All"** sheet containing every team member
-  - One **sheet per team** (matching the groups in `team.txt`) with the same metrics
+- **A timestamped Excel file** (e.g. `github_stats_20260318_120000.xlsx`):
+  - Running for **all teams**: an **"All"** sheet containing every member, plus one **sheet per team**
+  - Running for a **specific team**: a single sheet for that team only
 
 ## GitHub Token Setup
 
@@ -119,7 +122,7 @@ cd ~/github-stats
 pip3 install -r requirements.txt
 ```
 
-Create `org.txt` with your GitHub org name and `team.txt` with one GitHub username per line, then run:
+Create `org.txt` with your GitHub org name and `team.txt` with `[TeamName]` headers and usernames (see [Team members](#team-members) above), then run:
 
 ```bash
 python3 github_stats.py
