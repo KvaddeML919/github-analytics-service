@@ -51,25 +51,44 @@ echo ""
 
 # --- Set up team.txt ---
 if [ ! -f "$INSTALL_DIR/team.txt" ]; then
-    echo "Setting up team members..."
-    echo "Enter GitHub usernames (one per line). Press Enter on an empty line when done:"
+    echo "Setting up teams and members..."
+    echo "You'll enter team names first, then GitHub usernames for each team."
+    echo "Press Enter on an empty line to finish each step."
     echo ""
     > "$INSTALL_DIR/team.txt"
+    total_members=0
+
     while true; do
-        read -r -p "  Username: " username
-        if [ -z "$username" ]; then
+        read -r -p "  Team name (empty to finish adding teams): " team_name
+        if [ -z "$team_name" ]; then
             break
         fi
-        echo "$username" >> "$INSTALL_DIR/team.txt"
+
+        echo "[$team_name]" >> "$INSTALL_DIR/team.txt"
+        echo "    Adding members to $team_name..."
+
+        team_count=0
+        while true; do
+            read -r -p "      Username (empty to finish this team): " username
+            if [ -z "$username" ]; then
+                break
+            fi
+            echo "$username" >> "$INSTALL_DIR/team.txt"
+            team_count=$((team_count + 1))
+        done
+
+        echo "" >> "$INSTALL_DIR/team.txt"
+        total_members=$((total_members + team_count))
+        echo "    Added $team_count member(s) to $team_name."
+        echo ""
     done
 
-    count=$(grep -c . "$INSTALL_DIR/team.txt" 2>/dev/null || echo 0)
-    if [ "$count" -eq 0 ]; then
+    if [ "$total_members" -eq 0 ]; then
         echo ""
-        echo "Warning: No usernames added. Edit $INSTALL_DIR/team.txt before running."
+        echo "Warning: No members added. Edit $INSTALL_DIR/team.txt before running."
     else
         echo ""
-        echo "Added $count team member(s)."
+        echo "Added $total_members total team member(s)."
     fi
 else
     echo "team.txt already exists — keeping existing team list."

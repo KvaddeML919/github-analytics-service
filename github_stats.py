@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Pull PR, commit, and collaboration stats for team members from a GitHub org."""
 
-import csv
 import os
+import re
 import sys
 import time
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from datetime import datetime, timedelta, timezone
 
 import requests
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 
 GITHUB_API = "https://api.github.com"
 
@@ -103,16 +106,50 @@ def load_org():
 
 
 def load_team_members():
+    """Parse team.txt supporting both flat and grouped formats.
+
+    Grouped format uses [TeamName] headers:
+        [Payments]
+        user1
+        user2
+
+        [BV]
+        user3
+
+    Returns (all_members, teams_dict) where teams_dict is an OrderedDict
+    of team_name -> [usernames]. If no headers are present, returns a single
+    "All" team with every member.
+    """
     if not os.path.exists(TEAM_FILE):
         print(f"Error: Team file not found: {TEAM_FILE}")
         print("Create a team.txt file with one GitHub username per line.")
         sys.exit(1)
+
+    teams = OrderedDict()
+    current_team = None
+    header_re = re.compile(r"^\[(.+)\]\s*$")
+
     with open(TEAM_FILE) as f:
-        members = [line.strip() for line in f if line.strip()]
-    if not members:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            m = header_re.match(line)
+            if m:
+                current_team = m.group(1)
+                teams.setdefault(current_team, [])
+            else:
+                if current_team is None:
+                    current_team = "Ungrouped"
+                    teams.setdefault(current_team, [])
+                teams[current_team].append(line)
+
+    all_members = [u for members in teams.values() for u in members]
+    if not all_members:
         print("Error: team.txt is empty. Add at least one GitHub username.")
         sys.exit(1)
-    return members
+
+    return all_members, teams
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +419,106 @@ def count_working_days(start_date, end_date):
 
 
 # ---------------------------------------------------------------------------
+# Excel + console output helpers
+# ---------------------------------------------------------------------------
+
+_HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+_HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+_ALT_ROW_FILL = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
+_THIN_BORDER = Border(
+    bottom=Side(style="thin", color="B4C6E7"),
+)
+
+_COLUMNS = [
+    ("Username",               "username",                  14),
+    ("Total PRs",              "total_prs",                 10),
+    ("PRs/Working Day",        "prs_per_working_day",       16),
+    ("Merged PRs",             "merged_prs",                11),
+    ("Merge Rate %",           "merge_rate_pct",            12),
+    ("Avg Merge Time (hrs)",   "avg_merge_time_hrs",        20),
+    ("Total Commits",          "total_commits",             13),
+    ("Commits/Working Day",    "commits_per_working_day",   20),
+    ("Avg Coding Days/Week",   "avg_coding_days_per_week",  21),
+    ("Weekend Commits",        "weekend_commits",           16),
+    ("Avg Commits/Weekend",    "avg_commits_per_weekend",   20),
+    ("Active Repos",           "active_repos",              12),
+    ("Reviews Given",          "reviews_given",             14),
+    ("PRs Commented On",       "prs_commented_on",          17),
+    ("Avg +Lines/Commit",      "avg_additions_per_commit",  18),
+    ("Avg -Lines/Commit",      "avg_deletions_per_commit",  18),
+]
+
+
+def _write_stats_sheet(ws, rows):
+    """Write a formatted stats table into an openpyxl worksheet."""
+    for col_idx, (title, _, width) in enumerate(_COLUMNS, 1):
+        cell = ws.cell(row=1, column=col_idx, value=title)
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+    for row_idx, r in enumerate(rows, 2):
+        for col_idx, (_, key, _) in enumerate(_COLUMNS, 1):
+            val = r.get(key)
+            if val is None:
+                val = ""
+            ws.cell(row=row_idx, column=col_idx, value=val)
+
+        if row_idx % 2 == 0:
+            for col_idx in range(1, len(_COLUMNS) + 1):
+                ws.cell(row=row_idx, column=col_idx).fill = _ALT_ROW_FILL
+
+        for col_idx in range(1, len(_COLUMNS) + 1):
+            ws.cell(row=row_idx, column=col_idx).border = _THIN_BORDER
+
+    ws.freeze_panes = "B2"
+    ws.auto_filter.ref = ws.dimensions
+
+
+def _print_console_tables(results):
+    """Print the two summary tables to stdout."""
+    print(f"\n{'─' * 80}")
+    print("ACTIVITY")
+    hdr1 = (f"{'Username':<20} {'PRs':>5} {'PRs/wd':>7} {'Merged%':>8} "
+            f"{'Commits':>8} {'Cmts/wd':>8} {'CdDays/wk':>10} "
+            f"{'WkndCmts':>9} {'Cmts/wknd':>10}")
+    print(hdr1)
+    print("─" * len(hdr1))
+    for r in results:
+        cd = r["avg_coding_days_per_week"]
+        cd_str = f"{cd}" if cd is not None else "N/A"
+        print(f"{r['username']:<20} "
+              f"{r['total_prs']:>5} "
+              f"{r['prs_per_working_day']:>7} "
+              f"{r['merge_rate_pct']:>7.1f}% "
+              f"{r['total_commits']:>8} "
+              f"{r['commits_per_working_day']:>8} "
+              f"{cd_str:>10} "
+              f"{r['weekend_commits']:>9} "
+              f"{r['avg_commits_per_weekend']:>10}")
+
+    print(f"\n{'─' * 80}")
+    print("COLLABORATION & QUALITY")
+    hdr2 = (f"{'Username':<20} {'Reviews':>8} {'Commented':>10} "
+            f"{'Merge(h)':>9} {'Repos':>6} {'+Lines/c':>9} {'-Lines/c':>9}")
+    print(hdr2)
+    print("─" * len(hdr2))
+    for r in results:
+        m = r["avg_merge_time_hrs"]
+        merge_str = f"{m}" if m is not None else "N/A"
+        add_str = f"+{r['avg_additions_per_commit']}"
+        del_str = f"-{r['avg_deletions_per_commit']}"
+        print(f"{r['username']:<20} "
+              f"{r['reviews_given']:>8} "
+              f"{r['prs_commented_on']:>10} "
+              f"{merge_str:>9} "
+              f"{r['active_repos']:>6} "
+              f"{add_str:>9} "
+              f"{del_str:>9}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -412,7 +549,7 @@ def main():
     token = get_token()
     org = load_org()
     validate_token(token, org)
-    team_members = load_team_members()
+    team_members, teams = load_team_members()
     lookback_days = get_lookback_days()
 
     headers = {
@@ -514,65 +651,31 @@ def main():
               f"| PRs commented: {prs_commented}")
 
     results.sort(key=lambda r: r["total_commits"], reverse=True)
+    results_by_user = {r["username"]: r for r in results}
 
-    # ── CSV export ──────────────────────────────────────────────────────────
-    output_file = f"github_stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    fieldnames = list(results[0].keys()) if results else []
+    # ── Excel export ────────────────────────────────────────────────────────
+    output_file = f"github_stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    wb = Workbook()
 
-    with open(output_file, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for r in results:
-            row = {**r}
-            if row["avg_merge_time_hrs"] is None:
-                row["avg_merge_time_hrs"] = ""
-            if row["avg_coding_days_per_week"] is None:
-                row["avg_coding_days_per_week"] = ""
-            writer.writerow(row)
+    sheet_sets = [("All", results)]
+    for team_name, members in teams.items():
+        team_results = [results_by_user[u] for u in members if u in results_by_user]
+        team_results.sort(key=lambda r: r["total_commits"], reverse=True)
+        sheet_sets.append((team_name, team_results))
+
+    for idx, (sheet_name, sheet_results) in enumerate(sheet_sets):
+        ws = wb.active if idx == 0 else wb.create_sheet()
+        ws.title = sheet_name[:31]  # Excel limits sheet names to 31 chars
+        _write_stats_sheet(ws, sheet_results)
+
+    wb.save(output_file)
 
     print("\n" + "=" * 90)
-    print(f"CSV exported → {output_file}")
+    sheets_desc = ", ".join(name for name, _ in sheet_sets)
+    print(f"Excel exported → {output_file}  (sheets: {sheets_desc})")
 
-    # ── Table 1: Activity ───────────────────────────────────────────────────
-    print(f"\n{'─' * 80}")
-    print("ACTIVITY")
-    hdr1 = (f"{'Username':<20} {'PRs':>5} {'PRs/wd':>7} {'Merged%':>8} "
-            f"{'Commits':>8} {'Cmts/wd':>8} {'CdDays/wk':>10} "
-            f"{'WkndCmts':>9} {'Cmts/wknd':>10}")
-    print(hdr1)
-    print("─" * len(hdr1))
-    for r in results:
-        cd = r["avg_coding_days_per_week"]
-        cd_str = f"{cd}" if cd is not None else "N/A"
-        print(f"{r['username']:<20} "
-              f"{r['total_prs']:>5} "
-              f"{r['prs_per_working_day']:>7} "
-              f"{r['merge_rate_pct']:>7.1f}% "
-              f"{r['total_commits']:>8} "
-              f"{r['commits_per_working_day']:>8} "
-              f"{cd_str:>10} "
-              f"{r['weekend_commits']:>9} "
-              f"{r['avg_commits_per_weekend']:>10}")
-
-    # ── Table 2: Collaboration & Quality ────────────────────────────────────
-    print(f"\n{'─' * 80}")
-    print("COLLABORATION & QUALITY")
-    hdr2 = (f"{'Username':<20} {'Reviews':>8} {'Commented':>10} "
-            f"{'Merge(h)':>9} {'Repos':>6} {'+Lines/c':>9} {'-Lines/c':>9}")
-    print(hdr2)
-    print("─" * len(hdr2))
-    for r in results:
-        m = r["avg_merge_time_hrs"]
-        merge_str = f"{m}" if m is not None else "N/A"
-        add_str = f"+{r['avg_additions_per_commit']}"
-        del_str = f"-{r['avg_deletions_per_commit']}"
-        print(f"{r['username']:<20} "
-              f"{r['reviews_given']:>8} "
-              f"{r['prs_commented_on']:>10} "
-              f"{merge_str:>9} "
-              f"{r['active_repos']:>6} "
-              f"{add_str:>9} "
-              f"{del_str:>9}")
+    # ── Console tables ──────────────────────────────────────────────────────
+    _print_console_tables(results)
 
 
 if __name__ == "__main__":

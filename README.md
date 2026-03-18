@@ -31,7 +31,7 @@ Double-click **"GitHub Stats"** on your Desktop. It will:
 2. Validate the token -- clear error messages if scopes are missing or SSO isn't configured
 3. Ask how many days to look back (default: 90)
 4. Run the stats and display results
-5. Export a timestamped CSV to `~/github-stats/`
+5. Export a timestamped Excel file (`.xlsx`) to `~/github-stats/` with an "All" sheet plus one sheet per team
 
 ## Metrics
 
@@ -55,7 +55,9 @@ Double-click **"GitHub Stats"** on your Desktop. It will:
 - **Two summary tables** (sorted by most commits):
   - **Activity** -- PRs, PRs/wd, Merged%, Commits, Cmts/wd, CdDays/wk
   - **Collaboration & Quality** -- Reviews, Commented, Merge(h), Repos, +Lines/c, -Lines/c
-- **A timestamped CSV** (e.g. `github_stats_20260318_120000.csv`) with all metrics
+- **A timestamped Excel file** (e.g. `github_stats_20260318_120000.xlsx`) with:
+  - An **"All"** sheet containing every team member
+  - One **sheet per team** (matching the groups in `team.txt`) with the same metrics
 
 ## GitHub Token Setup
 
@@ -88,7 +90,19 @@ Edit `~/github-stats/org.txt` to change the GitHub org. This is set during insta
 
 ### Team members
 
-Edit `~/github-stats/team.txt` (one GitHub username per line). This is set during install and is gitignored.
+Edit `~/github-stats/team.txt`. Use `[TeamName]` headers to group members by team:
+
+```
+[Payments]
+user1
+user2
+
+[BV]
+user3
+user4
+```
+
+Each team gets its own sheet in the Excel output. Members listed without a header go into an "Ungrouped" team. This file is set during install and is gitignored.
 
 ### Other settings
 
