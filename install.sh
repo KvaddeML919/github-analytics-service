@@ -34,6 +34,21 @@ echo "Installing Python dependencies..."
 pip3 install --user -r requirements.txt 2>/dev/null || pip3 install -r requirements.txt
 echo ""
 
+# --- Set up org.txt ---
+if [ ! -f "$INSTALL_DIR/org.txt" ]; then
+    read -r -p "Enter the GitHub organization name: " org_name
+    if [ -z "$org_name" ]; then
+        echo "Error: No organization name provided."
+        exit 1
+    fi
+    echo "$org_name" > "$INSTALL_DIR/org.txt"
+    echo "Saved org: $org_name"
+else
+    echo "org.txt already exists — keeping existing org: $(cat "$INSTALL_DIR/org.txt")"
+fi
+
+echo ""
+
 # --- Set up team.txt ---
 if [ ! -f "$INSTALL_DIR/team.txt" ]; then
     echo "Setting up team members..."

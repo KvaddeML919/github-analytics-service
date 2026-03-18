@@ -12,9 +12,8 @@ import requests
 
 GITHUB_API = "https://api.github.com"
 
-ORG = "MoneyLion"
-
 TEAM_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "team.txt")
+ORG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "org.txt")
 
 DEFAULT_LOOKBACK_DAYS = 90
 
@@ -36,7 +35,7 @@ def get_token():
     return token
 
 
-def validate_token(token):
+def validate_token(token, org):
     """Check token validity and required scopes. Returns True if OK, exits otherwise."""
     headers = {"Authorization": f"token {token}"}
 
@@ -66,23 +65,39 @@ def validate_token(token):
     print(f"Token valid (authenticated as {user})")
 
     org_resp = requests.get(
-        f"{GITHUB_API}/orgs/{ORG}/repos",
+        f"{GITHUB_API}/orgs/{org}/repos",
         headers={**headers, "Accept": "application/vnd.github.v3+json"},
         params={"per_page": 1},
         timeout=15,
     )
     if org_resp.status_code == 403 or org_resp.status_code == 404:
-        print(f"\nWarning: Cannot access the {ORG} org.")
+        print(f"\nWarning: Cannot access the {org} org.")
         print("  If the org uses SAML SSO, you need to authorize the token:")
         print("  1. Go to https://github.com/settings/tokens")
         print("  2. Click 'Configure SSO' next to your token")
-        print(f"  3. Authorize it for {ORG}")
+        print(f"  3. Authorize it for {org}")
         print()
         proceed = input("Continue anyway? [y/N]: ").strip().lower()
         if proceed != "y":
             sys.exit(1)
 
     return True
+
+
+def load_org():
+    if os.path.exists(ORG_FILE):
+        with open(ORG_FILE) as f:
+            org = f.read().strip()
+            if org:
+                return org
+    org = input("Enter the GitHub organization name: ").strip()
+    if not org:
+        print("Error: No organization name provided.")
+        sys.exit(1)
+    with open(ORG_FILE, "w") as f:
+        f.write(org + "\n")
+    print(f"Saved org '{org}' to {ORG_FILE}")
+    return org
 
 
 def load_team_members():
@@ -198,47 +213,46 @@ def _delay():
 # Per-user query functions (each makes exactly one search API call)
 # ---------------------------------------------------------------------------
 
-def get_pr_count(username, since, headers):
+def get_pr_count(username, since, headers, org):
     return _search_count(
         "/search/issues",
-        f"type:pr author:{username} org:{ORG} created:>={since}",
+        f"type:pr author:{username} org:{org} created:>={since}",
         headers,
     )
 
 
-def get_merged_prs(username, since, headers):
+def get_merged_prs(username, since, headers, org):
     """Return (merged_count, all merged PR items) with pagination."""
     return _search_all_items(
         "/search/issues",
-        f"type:pr author:{username} org:{ORG} is:merged created:>={since}",
+        f"type:pr author:{username} org:{org} is:merged created:>={since}",
         headers,
     )
 
 
-def get_commits_with_items(username, since, headers):
+def get_commits_with_items(username, since, headers, org):
     """Return (commit_count, all commit items) with pagination."""
     return _search_all_items(
         "/search/commits",
-        f"author:{username} org:{ORG} committer-date:>={since}",
+        f"author:{username} org:{org} committer-date:>={since}",
         headers,
         accept="application/vnd.github.cloak-preview+json",
     )
 
 
-def get_reviews_given(username, since, headers):
+def get_reviews_given(username, since, headers, org):
     return _search_count(
         "/search/issues",
-        f"type:pr reviewed-by:{username} org:{ORG} created:>={since}",
+        f"type:pr reviewed-by:{username} org:{org} created:>={since}",
         headers,
     )
 
 
-
-def get_prs_commented_on(username, since, headers):
+def get_prs_commented_on(username, since, headers, org):
     """PRs authored by others where this user left comments."""
     return _search_count(
         "/search/issues",
-        f"type:pr commenter:{username} -author:{username} org:{ORG} created:>={since}",
+        f"type:pr commenter:{username} -author:{username} org:{org} created:>={since}",
         headers,
     )
 
@@ -370,7 +384,8 @@ def get_lookback_days():
 
 def main():
     token = get_token()
-    validate_token(token)
+    org = load_org()
+    validate_token(token, org)
     team_members = load_team_members()
     lookback_days = get_lookback_days()
 
@@ -394,7 +409,7 @@ def main():
     )
 
     print(f"\nGitHub Stats for {total} team members")
-    print(f"Org:            {ORG}")
+    print(f"Org:            {org}")
     print(f"Period:         {since_date} → {today_date}  "
           f"({lookback_days} calendar days, {working_days} working days)")
     print(f"Estimated time: ~{est_min} min")
@@ -405,19 +420,19 @@ def main():
     for i, username in enumerate(team_members, 1):
         print(f"\n[{i}/{total}] {username}")
 
-        pr_count = get_pr_count(username, since_date, headers)
+        pr_count = get_pr_count(username, since_date, headers, org)
         _delay()
 
-        merged_count, merged_items = get_merged_prs(username, since_date, headers)
+        merged_count, merged_items = get_merged_prs(username, since_date, headers, org)
         _delay()
 
-        commit_count, commit_items = get_commits_with_items(username, since_date, headers)
+        commit_count, commit_items = get_commits_with_items(username, since_date, headers, org)
         _delay()
 
-        reviews_given = get_reviews_given(username, since_date, headers)
+        reviews_given = get_reviews_given(username, since_date, headers, org)
         _delay()
 
-        prs_commented = get_prs_commented_on(username, since_date, headers)
+        prs_commented = get_prs_commented_on(username, since_date, headers, org)
         if i < total:
             _delay()
 
