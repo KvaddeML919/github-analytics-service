@@ -546,7 +546,46 @@ _COLUMNS = [
 ]
 
 
-def _write_stats_sheet(ws, rows):
+_TEAM_AVG_KEYS = [
+    "prs_per_working_day",
+    "merge_rate_pct",
+    "avg_merge_time_hrs",
+    "commits_per_coding_day",
+    "avg_coding_days_per_week",
+    "weekend_commits",
+    "reviews_given",
+    "prs_commented_on",
+    "avg_additions_per_commit",
+    "avg_deletions_per_commit",
+]
+
+
+def _compute_team_averages(rows):
+    """Return a dict with team-average values for the keys in _TEAM_AVG_KEYS.
+
+    Keys not in _TEAM_AVG_KEYS are left blank. None values are excluded from
+    the average (so a user with None merge time doesn't drag it down).
+    """
+    if not rows:
+        return {}
+    avgs = {"username": "TEAM AVERAGE"}
+    for key in _TEAM_AVG_KEYS:
+        vals = [r[key] for r in rows if r.get(key) is not None]
+        if vals:
+            avgs[key] = round(sum(vals) / len(vals), 1)
+        else:
+            avgs[key] = None
+    for _, key, _ in _COLUMNS:
+        if key not in avgs:
+            avgs[key] = ""
+    return avgs
+
+
+_TEAM_AVG_FONT = Font(bold=True, color="FFFFFF", size=11)
+_TEAM_AVG_FILL = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
+
+
+def _write_stats_sheet(ws, rows, team_avg=None):
     """Write a formatted stats table into an openpyxl worksheet."""
     for col_idx, (title, _, width) in enumerate(_COLUMNS, 1):
         cell = ws.cell(row=1, column=col_idx, value=title)
@@ -569,12 +608,31 @@ def _write_stats_sheet(ws, rows):
         for col_idx in range(1, len(_COLUMNS) + 1):
             ws.cell(row=row_idx, column=col_idx).border = _THIN_BORDER
 
+    if team_avg:
+        avg_row = len(rows) + 3
+        for col_idx, (_, key, _) in enumerate(_COLUMNS, 1):
+            val = team_avg.get(key)
+            if val is None:
+                val = ""
+            cell = ws.cell(row=avg_row, column=col_idx, value=val)
+            cell.font = _TEAM_AVG_FONT
+            cell.fill = _TEAM_AVG_FILL
+            cell.border = _THIN_BORDER
+            cell.alignment = Alignment(horizontal="center")
+
     ws.freeze_panes = "B2"
     ws.auto_filter.ref = ws.dimensions
 
 
-def _print_console_tables(results):
-    """Print the two summary tables to stdout."""
+def _fmt_val(val, fmt="", prefix="", suffix="", na="N/A"):
+    """Format a value for console display, handling None gracefully."""
+    if val is None or val == "":
+        return na
+    return f"{prefix}{val:{fmt}}{suffix}"
+
+
+def _print_console_tables(results, team_avg=None):
+    """Print the two summary tables to stdout, with optional team average."""
     print(f"\n{'─' * 110}")
     print("ACTIVITY")
     hdr1 = (f"{'Username':<20} {'PRs':>6} {'PRs/Day':>8} {'Merged%':>8} "
@@ -582,17 +640,26 @@ def _print_console_tables(results):
             f"{'Wknd Cmts':>10}")
     print(hdr1)
     print("─" * len(hdr1))
-    for r in results:
-        cd = r["avg_coding_days_per_week"]
-        cd_str = f"{cd}" if cd is not None else "N/A"
+
+    def _print_activity_row(r):
+        cd_str = _fmt_val(r.get("avg_coding_days_per_week"))
+        prs = _fmt_val(r.get("total_prs"), na="")
+        cmts = _fmt_val(r.get("total_commits"), na="")
+        wknd = _fmt_val(r.get("weekend_commits"), na="")
         print(f"{r['username']:<20} "
-              f"{r['total_prs']:>6} "
-              f"{r['prs_per_working_day']:>8} "
-              f"{r['merge_rate_pct']:>7.1f}% "
-              f"{r['total_commits']:>8} "
-              f"{r['commits_per_coding_day']:>9} "
+              f"{prs:>6} "
+              f"{_fmt_val(r.get('prs_per_working_day')):>8} "
+              f"{_fmt_val(r.get('merge_rate_pct'), suffix='%'):>8} "
+              f"{cmts:>8} "
+              f"{_fmt_val(r.get('commits_per_coding_day')):>9} "
               f"{cd_str:>12} "
-              f"{r['weekend_commits']:>10}")
+              f"{wknd:>10}")
+
+    for r in results:
+        _print_activity_row(r)
+    if team_avg:
+        print("─" * len(hdr1))
+        _print_activity_row(team_avg)
 
     print(f"\n{'─' * 110}")
     print("COLLABORATION & QUALITY")
@@ -600,18 +667,28 @@ def _print_console_tables(results):
             f"{'Merge Time':>11} {'Repos':>6} {'Lines Added':>12} {'Lines Removed':>14}")
     print(hdr2)
     print("─" * len(hdr2))
-    for r in results:
-        m = r["avg_merge_time_hrs"]
+
+    def _print_collab_row(r):
+        m = r.get("avg_merge_time_hrs")
         merge_str = f"{m}h" if m is not None else "N/A"
-        add_str = f"+{r['avg_additions_per_commit']}"
-        del_str = f"-{r['avg_deletions_per_commit']}"
+        add_str = _fmt_val(r.get("avg_additions_per_commit"), prefix="+")
+        del_str = _fmt_val(r.get("avg_deletions_per_commit"), prefix="-")
+        reviews = _fmt_val(r.get("reviews_given"), na="")
+        commented = _fmt_val(r.get("prs_commented_on"), na="")
+        repos = _fmt_val(r.get("active_repos"), na="")
         print(f"{r['username']:<20} "
-              f"{r['reviews_given']:>8} "
-              f"{r['prs_commented_on']:>10} "
+              f"{reviews:>8} "
+              f"{commented:>10} "
               f"{merge_str:>11} "
-              f"{r['active_repos']:>6} "
+              f"{repos:>6} "
               f"{add_str:>12} "
               f"{del_str:>14}")
+
+    for r in results:
+        _print_collab_row(r)
+    if team_avg:
+        print("─" * len(hdr2))
+        _print_collab_row(team_avg)
 
 
 # ---------------------------------------------------------------------------
@@ -820,8 +897,9 @@ def main():
 
     for idx, (sheet_name, sheet_results) in enumerate(sheet_sets):
         ws = wb.active if idx == 0 else wb.create_sheet()
-        ws.title = sheet_name[:31]  # Excel limits sheet names to 31 chars
-        _write_stats_sheet(ws, sheet_results)
+        ws.title = sheet_name[:31]
+        team_avg = _compute_team_averages(sheet_results) if len(sheet_results) > 1 else None
+        _write_stats_sheet(ws, sheet_results, team_avg=team_avg)
 
     wb.save(output_file)
 
@@ -830,7 +908,8 @@ def main():
     print(f"Excel exported → {output_file}  (sheets: {sheets_desc})")
 
     # ── Console tables ──────────────────────────────────────────────────────
-    _print_console_tables(results)
+    overall_avg = _compute_team_averages(results) if len(results) > 1 else None
+    _print_console_tables(results, team_avg=overall_avg)
 
 
 if __name__ == "__main__":
