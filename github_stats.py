@@ -269,11 +269,11 @@ def get_merged_prs(username, since, headers, org):
     )
 
 
-def get_open_prs(username, since, headers, org):
-    """Return (open_count, all open PR items) including drafts."""
+def get_unmerged_prs(username, since, headers, org):
+    """Return (count, items) for all unmerged PRs (open, draft, and closed-without-merging)."""
     return _search_all_items(
         "/search/issues",
-        f"type:pr author:{username} org:{org} is:open created:>={since}",
+        f"type:pr author:{username} org:{org} is:unmerged created:>={since}",
         headers,
     )
 
@@ -329,13 +329,15 @@ def compute_avg_merge_hours(merged_items):
     return round(sum(durations) / len(durations), 1) if durations else None
 
 
-def compute_avg_coding_days(commit_items, start_date, end_date):
-    """Average coding days per week following Flow's definition.
+def compute_coding_day_stats(commit_items, start_date, end_date):
+    """Return (avg_coding_days_per_week, total_coding_days).
 
-    All days (including weekends) count. Merge commits are excluded.
-    Zero-commit weeks are excluded from the denominator.
-    Partial weeks at period boundaries use Flow's normalization:
-        (coding_days / total_days) * min(7, total_days)
+    avg_coding_days_per_week follows Flow's definition: all days
+    (including weekends) count, merge commits are excluded, zero-commit
+    weeks are excluded, partial weeks use Flow's normalization.
+
+    total_coding_days is the raw count of unique days with at least one
+    non-merge commit (used to derive commits-per-coding-day).
     """
     coding_dates = set()
     for item in commit_items:
@@ -350,7 +352,7 @@ def compute_avg_coding_days(commit_items, start_date, end_date):
             coding_dates.add(dt)
 
     if not coding_dates:
-        return None
+        return None, 0
 
     period_days_by_week = defaultdict(int)
     current = start_date
@@ -367,10 +369,10 @@ def compute_avg_coding_days(commit_items, start_date, end_date):
     total_days = sum(period_days_by_week[wk] for wk in active_weeks)
 
     if total_days == 0:
-        return None
+        return None, 0
 
-    result = (total_coding_days / total_days) * min(7, total_days)
-    return round(result, 1)
+    avg = (total_coding_days / total_days) * min(7, total_days)
+    return round(avg, 1), total_coding_days
 
 
 def compute_weekend_commits(commit_items, start_date, end_date):
@@ -439,8 +441,8 @@ def fetch_pr_branch_commits(pr_items, headers, username):
             )
             if resp.status_code == 200:
                 for c in resp.json():
-                    author_login = (c.get("author") or {}).get("login", "")
-                    if author_login.lower() != username.lower():
+                    author = c.get("author")
+                    if author is not None and author.get("login", "").lower() != username.lower():
                         continue
                     sha = c.get("sha")
                     if sha and sha not in seen_shas:
@@ -517,6 +519,7 @@ _COLUMNS = [
     ("Avg Merge Time (hrs)",   "avg_merge_time_hrs",        20),
     ("Total Commits",          "total_commits",             13),
     ("Commits/Working Day",    "commits_per_working_day",   20),
+    ("Commits/Coding Day",     "commits_per_coding_day",    19),
     ("Avg Coding Days/Week",   "avg_coding_days_per_week",  21),
     ("Weekend Commits",        "weekend_commits",           16),
     ("Avg Commits/Weekend",    "avg_commits_per_weekend",   20),
@@ -560,7 +563,7 @@ def _print_console_tables(results):
     print(f"\n{'─' * 80}")
     print("ACTIVITY")
     hdr1 = (f"{'Username':<20} {'PRs':>5} {'PRs/wd':>7} {'Merged%':>8} "
-            f"{'Commits':>8} {'Cmts/wd':>8} {'CdDays/wk':>10} "
+            f"{'Commits':>8} {'Cmts/wd':>8} {'Cmts/cd':>8} {'CdDays/wk':>10} "
             f"{'WkndCmts':>9} {'Cmts/wknd':>10}")
     print(hdr1)
     print("─" * len(hdr1))
@@ -573,6 +576,7 @@ def _print_console_tables(results):
               f"{r['merge_rate_pct']:>7.1f}% "
               f"{r['total_commits']:>8} "
               f"{r['commits_per_working_day']:>8} "
+              f"{r['commits_per_coding_day']:>8} "
               f"{cd_str:>10} "
               f"{r['weekend_commits']:>9} "
               f"{r['avg_commits_per_weekend']:>10}")
@@ -702,7 +706,7 @@ def main():
         merged_count, merged_items = get_merged_prs(username, since_date, headers, org)
         _delay()
 
-        _, open_items = get_open_prs(username, since_date, headers, org)
+        _, unmerged_items = get_unmerged_prs(username, since_date, headers, org)
         _delay()
 
         commit_count, commit_items = get_commits_with_items(username, since_date, headers, org)
@@ -716,7 +720,7 @@ def main():
             _delay()
 
         # Fetch PR branch commits and merge with search-API commits
-        all_pr_items = merged_items + open_items
+        all_pr_items = merged_items + unmerged_items
         pr_branch_commits = fetch_pr_branch_commits(
             all_pr_items, headers, username,
         )
@@ -732,8 +736,12 @@ def main():
         commits_per_wd = round(total_commit_count / working_days, 2) if working_days else 0
         merge_rate = round(merged_count / pr_count * 100, 1) if pr_count else 0.0
         avg_merge_hrs = compute_avg_merge_hours(merged_items)
-        avg_coding_days = compute_avg_coding_days(
+        avg_coding_days, total_coding_days = compute_coding_day_stats(
             all_commit_items, since.date(), now.date(),
+        )
+        commits_per_cd = (
+            round(total_commit_count / total_coding_days, 1)
+            if total_coding_days else 0
         )
         wknd_commits, avg_wknd_commits = compute_weekend_commits(
             all_commit_items, since.date(), now.date(),
@@ -758,6 +766,7 @@ def main():
             "avg_merge_time_hrs": avg_merge_hrs,
             "total_commits": total_commit_count,
             "commits_per_working_day": commits_per_wd,
+            "commits_per_coding_day": commits_per_cd,
             "avg_coding_days_per_week": avg_coding_days,
             "weekend_commits": wknd_commits,
             "avg_commits_per_weekend": avg_wknd_commits,
@@ -772,7 +781,7 @@ def main():
         merge_str = f"{avg_merge_hrs}h" if avg_merge_hrs is not None else "N/A"
         coding_str = f"{avg_coding_days}" if avg_coding_days is not None else "N/A"
         print(f"  Activity:  PRs: {pr_count} ({prs_per_wd}/wd, {merge_rate}% merged) "
-              f"| Commits: {total_commit_count} ({commits_per_wd}/wd) "
+              f"| Commits: {total_commit_count} ({commits_per_wd}/wd, {commits_per_cd}/cd) "
               f"| Coding days/wk: {coding_str} "
               f"| Weekend: {wknd_commits} ({avg_wknd_commits}/wknd)")
         print(f"  Quality:   Avg merge time: {merge_str} "
