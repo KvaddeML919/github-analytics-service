@@ -329,16 +329,13 @@ def compute_avg_merge_hours(merged_items):
     return round(sum(durations) / len(durations), 1) if durations else None
 
 
-def compute_avg_coding_days(commit_items, start_date, end_date, pr_dates=None):
+def compute_avg_coding_days(commit_items, start_date, end_date):
     """Average coding days per week following Flow's definition.
 
     All days (including weekends) count. Merge commits are excluded.
     Zero-commit weeks are excluded from the denominator.
     Partial weeks at period boundaries use Flow's normalization:
         (coding_days / total_days) * min(7, total_days)
-
-    pr_dates is an optional set of dates from PR branch commits, used to
-    recover coding-day information lost by squash merges.
     """
     coding_dates = set()
     for item in commit_items:
@@ -351,9 +348,6 @@ def compute_avg_coding_days(commit_items, start_date, end_date, pr_dates=None):
         dt = _parse_iso(date_str).astimezone(MYT).date()
         if start_date <= dt <= end_date:
             coding_dates.add(dt)
-
-    if pr_dates:
-        coding_dates.update(d for d in pr_dates if start_date <= d <= end_date)
 
     if not coding_dates:
         return None
@@ -411,24 +405,31 @@ def count_active_repos(commit_items):
     })
 
 
-def fetch_pr_coding_dates(pr_items, headers, username):
-    """Fetch actual commit dates from PR branches (merged, open, and draft).
+def fetch_pr_branch_commits(pr_items, headers, username):
+    """Fetch commit objects from PR branches authored by ``username``.
 
     GitHub's commit search only indexes default-branch commits. For
-    squash-merged PRs the individual branch commits (and their dates) are
-    lost, and open/draft PR branches are never on the default branch.
-    This retrieves commits via the PR commits endpoint so coding-days
-    reflects actual activity.
+    squash-merged PRs the individual branch commits are lost, and
+    open/draft PR branches are never on the default branch. This
+    retrieves them via the PR commits endpoint.
+
+    Returns a list of commit dicts (deduplicated by SHA). Each dict is
+    compatible with the search-commits format: it contains at least
+    ``sha``, ``commit.committer.date``, ``parents``, and a synthesised
+    ``repository.full_name`` extracted from the PR URL.
     """
-    coding_dates = set()
+    commits = []
+    seen_shas = set()
     total = len(pr_items)
     if not total:
-        return coding_dates
+        return commits
     print(f"  Fetching PR branch commits ({total} PRs) ...")
     for item in pr_items:
         pr_url = (item.get("pull_request") or {}).get("url")
         if not pr_url:
             continue
+        repo_match = re.match(r".*/repos/([^/]+/[^/]+)/pulls/", pr_url)
+        repo_name = repo_match.group(1) if repo_match else None
         try:
             resp = requests.get(
                 f"{pr_url}/commits",
@@ -441,17 +442,16 @@ def fetch_pr_coding_dates(pr_items, headers, username):
                     author_login = (c.get("author") or {}).get("login", "")
                     if author_login.lower() != username.lower():
                         continue
-                    date_str = (
-                        c.get("commit", {}).get("committer", {}).get("date")
-                    )
-                    if date_str:
-                        coding_dates.add(
-                            _parse_iso(date_str).astimezone(MYT).date()
-                        )
+                    sha = c.get("sha")
+                    if sha and sha not in seen_shas:
+                        seen_shas.add(sha)
+                        if repo_name:
+                            c.setdefault("repository", {})["full_name"] = repo_name
+                        commits.append(c)
             time.sleep(COMMIT_API_DELAY_SECONDS)
         except Exception:
             continue
-    return coding_dates
+    return commits
 
 
 def fetch_line_stats_sample(commit_items, headers):
@@ -715,25 +715,36 @@ def main():
         if i < total:
             _delay()
 
+        # Fetch PR branch commits and merge with search-API commits
+        all_pr_items = merged_items + open_items
+        pr_branch_commits = fetch_pr_branch_commits(
+            all_pr_items, headers, username,
+        )
+        search_shas = {item.get("sha") for item in commit_items}
+        unique_pr_commits = [
+            c for c in pr_branch_commits if c.get("sha") not in search_shas
+        ]
+        all_commit_items = commit_items + unique_pr_commits
+        total_commit_count = commit_count + len(unique_pr_commits)
+
         # Derived metrics
         prs_per_wd = round(pr_count / working_days, 2) if working_days else 0
-        commits_per_wd = round(commit_count / working_days, 2) if working_days else 0
+        commits_per_wd = round(total_commit_count / working_days, 2) if working_days else 0
         merge_rate = round(merged_count / pr_count * 100, 1) if pr_count else 0.0
         avg_merge_hrs = compute_avg_merge_hours(merged_items)
-        all_pr_items = merged_items + open_items
-        pr_dates = fetch_pr_coding_dates(all_pr_items, headers, username)
         avg_coding_days = compute_avg_coding_days(
-            commit_items, since.date(), now.date(), pr_dates,
+            all_commit_items, since.date(), now.date(),
         )
         wknd_commits, avg_wknd_commits = compute_weekend_commits(
-            commit_items, since.date(), now.date(),
+            all_commit_items, since.date(), now.date(),
         )
-        active_repos = count_active_repos(commit_items)
+        active_repos = count_active_repos(all_commit_items)
 
+        line_stats_pool = unique_pr_commits if unique_pr_commits else commit_items
         additions = deletions = sampled = 0
-        if commit_items:
+        if line_stats_pool:
             additions, deletions, sampled = fetch_line_stats_sample(
-                commit_items, headers,
+                line_stats_pool, headers,
             )
         avg_add = round(additions / sampled) if sampled else 0
         avg_del = round(deletions / sampled) if sampled else 0
@@ -745,7 +756,7 @@ def main():
             "merged_prs": merged_count,
             "merge_rate_pct": merge_rate,
             "avg_merge_time_hrs": avg_merge_hrs,
-            "total_commits": commit_count,
+            "total_commits": total_commit_count,
             "commits_per_working_day": commits_per_wd,
             "avg_coding_days_per_week": avg_coding_days,
             "weekend_commits": wknd_commits,
@@ -761,7 +772,7 @@ def main():
         merge_str = f"{avg_merge_hrs}h" if avg_merge_hrs is not None else "N/A"
         coding_str = f"{avg_coding_days}" if avg_coding_days is not None else "N/A"
         print(f"  Activity:  PRs: {pr_count} ({prs_per_wd}/wd, {merge_rate}% merged) "
-              f"| Commits: {commit_count} ({commits_per_wd}/wd) "
+              f"| Commits: {total_commit_count} ({commits_per_wd}/wd) "
               f"| Coding days/wk: {coding_str} "
               f"| Weekend: {wknd_commits} ({avg_wknd_commits}/wknd)")
         print(f"  Quality:   Avg merge time: {merge_str} "
