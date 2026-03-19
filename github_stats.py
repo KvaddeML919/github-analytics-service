@@ -535,11 +535,9 @@ _COLUMNS = [
     ("Merge Rate %",              "merge_rate_pct",            12),
     ("Avg Merge Time (hrs)",      "avg_merge_time_hrs",        20),
     ("Total Commits",             "total_commits",             13),
-    ("Commits / Working Day",     "commits_per_working_day",   20),
     ("Commits / Day",             "commits_per_coding_day",    14),
     ("Coding Days / Week",        "avg_coding_days_per_week",  18),
     ("Weekend Commits",           "weekend_commits",           16),
-    ("Avg Weekend Commits",       "avg_commits_per_weekend",   20),
     ("Active Repos",              "active_repos",              12),
     ("Reviews Given",             "reviews_given",             14),
     ("PRs Commented On",          "prs_commented_on",          17),
@@ -581,7 +579,7 @@ def _print_console_tables(results):
     print("ACTIVITY")
     hdr1 = (f"{'Username':<20} {'PRs':>6} {'PRs/Day':>8} {'Merged%':>8} "
             f"{'Commits':>8} {'Cmts/Day':>9} {'Coding Days':>12} "
-            f"{'Wknd Cmts':>10} {'Cmts/Wknd':>10}")
+            f"{'Wknd Cmts':>10}")
     print(hdr1)
     print("─" * len(hdr1))
     for r in results:
@@ -594,8 +592,7 @@ def _print_console_tables(results):
               f"{r['total_commits']:>8} "
               f"{r['commits_per_coding_day']:>9} "
               f"{cd_str:>12} "
-              f"{r['weekend_commits']:>10} "
-              f"{r['avg_commits_per_weekend']:>10}")
+              f"{r['weekend_commits']:>10}")
 
     print(f"\n{'─' * 110}")
     print("COLLABORATION & QUALITY")
@@ -752,7 +749,6 @@ def main():
 
         # Derived metrics
         prs_per_wd = round(pr_count / working_days, 2) if working_days else 0
-        commits_per_wd = round(total_commit_count / working_days, 2) if working_days else 0
         merge_rate = round(merged_count / pr_count * 100, 1) if pr_count else 0.0
         avg_merge_hrs = compute_avg_merge_hours(merged_items)
         avg_coding_days, total_coding_days = compute_coding_day_stats(
@@ -762,7 +758,7 @@ def main():
             round(total_commit_count / total_coding_days, 1)
             if total_coding_days else 0
         )
-        wknd_commits, avg_wknd_commits = compute_weekend_commits(
+        wknd_commits, _ = compute_weekend_commits(
             all_commit_items, since.date(), now.date(),
         )
         active_repos = count_active_repos(all_commit_items)
@@ -784,11 +780,9 @@ def main():
             "merge_rate_pct": merge_rate,
             "avg_merge_time_hrs": avg_merge_hrs,
             "total_commits": total_commit_count,
-            "commits_per_working_day": commits_per_wd,
             "commits_per_coding_day": commits_per_cd,
             "avg_coding_days_per_week": avg_coding_days,
             "weekend_commits": wknd_commits,
-            "avg_commits_per_weekend": avg_wknd_commits,
             "active_repos": active_repos,
             "reviews_given": reviews_given,
             "prs_commented_on": prs_commented,

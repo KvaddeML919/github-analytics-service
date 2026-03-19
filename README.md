@@ -46,7 +46,6 @@ All commit-based metrics include PR branch commits (not just default-branch comm
 | | PRs / Working Day | PRs / weekdays (Mon-Fri) |
 | | Merged PRs & Merge Rate | Count and percentage of PRs that were merged |
 | | Total Commits | Unique commits across default branch and PR branches (merged, open, draft, and closed) |
-| | Commits / Working Day | Total commits / weekdays |
 | | Commits / Day | Average commits on days when the user actually coded |
 | | Coding Days | Average days per week with at least 1 non-merge commit, per active week (zero-commit weeks excluded). Follows [Flow's definition](https://appfire.atlassian.net/wiki/spaces/FD/pages/1802502326/Coding+days) -- includes weekends, excludes merge commits, normalizes partial weeks |
 | | Weekend Commits | Total commits on Sat/Sun, including PR branch activity |
