@@ -580,7 +580,7 @@ def _print_console_tables(results):
     print(f"\n{'─' * 110}")
     print("ACTIVITY")
     hdr1 = (f"{'Username':<20} {'PRs':>6} {'PRs/Day':>8} {'Merged%':>8} "
-            f"{'Commits':>8} {'Cmts/Day':>9} {'Days/Wk':>8} "
+            f"{'Commits':>8} {'Cmts/Day':>9} {'Coding Days':>12} "
             f"{'Wknd Cmts':>10} {'Cmts/Wknd':>10}")
     print(hdr1)
     print("─" * len(hdr1))
@@ -593,7 +593,7 @@ def _print_console_tables(results):
               f"{r['merge_rate_pct']:>7.1f}% "
               f"{r['total_commits']:>8} "
               f"{r['commits_per_coding_day']:>9} "
-              f"{cd_str:>8} "
+              f"{cd_str:>12} "
               f"{r['weekend_commits']:>10} "
               f"{r['avg_commits_per_weekend']:>10}")
 
