@@ -269,6 +269,15 @@ def get_merged_prs(username, since, headers, org):
     )
 
 
+def get_open_prs(username, since, headers, org):
+    """Return (open_count, all open PR items) including drafts."""
+    return _search_all_items(
+        "/search/issues",
+        f"type:pr author:{username} org:{org} is:open created:>={since}",
+        headers,
+    )
+
+
 def get_commits_with_items(username, since, headers, org):
     """Return (commit_count, all commit items) with pagination."""
     return _search_all_items(
@@ -402,20 +411,21 @@ def count_active_repos(commit_items):
     })
 
 
-def fetch_pr_coding_dates(merged_items, headers, username):
-    """Fetch actual commit dates from merged PR branches.
+def fetch_pr_coding_dates(pr_items, headers, username):
+    """Fetch actual commit dates from PR branches (merged, open, and draft).
 
     GitHub's commit search only indexes default-branch commits. For
     squash-merged PRs the individual branch commits (and their dates) are
-    lost. This retrieves them via the PR commits endpoint so coding-days
-    reflects actual activity, not just the squash-commit date.
+    lost, and open/draft PR branches are never on the default branch.
+    This retrieves commits via the PR commits endpoint so coding-days
+    reflects actual activity.
     """
     coding_dates = set()
-    total = len(merged_items)
+    total = len(pr_items)
     if not total:
         return coding_dates
     print(f"  Fetching PR branch commits ({total} PRs) ...")
-    for item in merged_items:
+    for item in pr_items:
         pr_url = (item.get("pull_request") or {}).get("url")
         if not pr_url:
             continue
@@ -667,7 +677,7 @@ def main():
 
     total = len(team_members)
     scope_label = "All teams" if len(run_teams) > 1 else list(run_teams.keys())[0]
-    search_calls_per_user = 5
+    search_calls_per_user = 6
     est_min = round(
         (total * search_calls_per_user * SEARCH_API_DELAY_SECONDS
          + total * LINE_STATS_SAMPLE_SIZE * COMMIT_API_DELAY_SECONDS) / 60,
@@ -692,6 +702,9 @@ def main():
         merged_count, merged_items = get_merged_prs(username, since_date, headers, org)
         _delay()
 
+        _, open_items = get_open_prs(username, since_date, headers, org)
+        _delay()
+
         commit_count, commit_items = get_commits_with_items(username, since_date, headers, org)
         _delay()
 
@@ -707,7 +720,8 @@ def main():
         commits_per_wd = round(commit_count / working_days, 2) if working_days else 0
         merge_rate = round(merged_count / pr_count * 100, 1) if pr_count else 0.0
         avg_merge_hrs = compute_avg_merge_hours(merged_items)
-        pr_dates = fetch_pr_coding_dates(merged_items, headers, username)
+        all_pr_items = merged_items + open_items
+        pr_dates = fetch_pr_coding_dates(all_pr_items, headers, username)
         avg_coding_days = compute_avg_coding_days(
             commit_items, since.date(), now.date(), pr_dates,
         )
