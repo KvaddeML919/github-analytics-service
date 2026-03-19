@@ -117,8 +117,6 @@ All times are in **MYT (UTC+8)**. Commit metrics include PR branch commits — n
 |---|---|
 | **Avg Merge Time (hrs)** | Average hours from PR creation to merge — lower is faster turnaround |
 | **Active Repos** | Distinct repos the user committed to — measures breadth of contribution |
-| **Avg Lines Added / Commit** | Average additions per commit (sampled from 5 recent PR-branch commits) |
-| **Avg Lines Removed / Commit** | Average deletions per commit (sampled from 5 recent PR-branch commits) |
 
 ### How to interpret
 
@@ -127,7 +125,6 @@ All times are in **MYT (UTC+8)**. Commit metrics include PR branch commits — n
 - **High PRs but low Merge Rate** → possible bottleneck in reviews or PR quality
 - **High Reaction Time** → PRs sit waiting for feedback — review process may need attention
 - **High Reviews Given** → active code reviewer, contributing to team quality
-- **Large Avg Lines Added/Removed** → big changes per commit (could mean fewer, larger PRs)
 
 ## 6. Output Format
 

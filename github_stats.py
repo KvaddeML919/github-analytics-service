@@ -656,8 +656,6 @@ _COLUMNS = [
     ("Time to 1st Comment (hrs)", "avg_first_comment_hrs",     22),
     ("Reviews Given",             "reviews_given",             14),
     ("PRs Commented On",          "prs_commented_on",          17),
-    ("Avg Lines Added / Commit",  "avg_additions_per_commit",  22),
-    ("Avg Lines Removed / Commit","avg_deletions_per_commit",  24),
 ]
 
 
@@ -672,8 +670,6 @@ _TEAM_AVG_KEYS = [
     "avg_first_comment_hrs",
     "reviews_given",
     "prs_commented_on",
-    "avg_additions_per_commit",
-    "avg_deletions_per_commit",
 ]
 
 
@@ -782,7 +778,7 @@ def _print_console_tables(results, team_avg=None):
     print("COLLABORATION & QUALITY")
     hdr2 = (f"{'Username':<20} {'Reviews':>8} {'Commented':>10} "
             f"{'Reaction':>9} {'1st Cmt':>8} "
-            f"{'Merge Time':>11} {'Repos':>6} {'Lines Added':>12} {'Lines Removed':>14}")
+            f"{'Merge Time':>11} {'Repos':>6}")
     print(hdr2)
     print("─" * len(hdr2))
 
@@ -791,8 +787,6 @@ def _print_console_tables(results, team_avg=None):
         merge_str = f"{m}h" if m is not None else "N/A"
         react_str = _fmt_val(r.get("avg_reaction_time_hrs"), suffix="h")
         cmt_str = _fmt_val(r.get("avg_first_comment_hrs"), suffix="h")
-        add_str = _fmt_val(r.get("avg_additions_per_commit"), prefix="+")
-        del_str = _fmt_val(r.get("avg_deletions_per_commit"), prefix="-")
         reviews = _fmt_val(r.get("reviews_given"), na="")
         commented = _fmt_val(r.get("prs_commented_on"), na="")
         repos = _fmt_val(r.get("active_repos"), na="")
@@ -802,9 +796,7 @@ def _print_console_tables(results, team_avg=None):
               f"{react_str:>9} "
               f"{cmt_str:>8} "
               f"{merge_str:>11} "
-              f"{repos:>6} "
-              f"{add_str:>12} "
-              f"{del_str:>14}")
+              f"{repos:>6}")
 
     for r in results:
         _print_collab_row(r)
@@ -899,7 +891,6 @@ def main():
     pr_fetch_seconds = avg_prs_per_user * pr_calls_per_pr / PR_BRANCH_WORKERS
     est_min = round(
         (total * search_calls_per_user * SEARCH_API_DELAY_SECONDS
-         + total * LINE_STATS_SAMPLE_SIZE * COMMIT_API_DELAY_SECONDS
          + total * pr_fetch_seconds) / 60,
         1,
     )
@@ -970,15 +961,6 @@ def main():
             all_pr_items, headers, username,
         )
 
-        line_stats_pool = unique_pr_commits if unique_pr_commits else commit_items
-        additions = deletions = sampled = 0
-        if line_stats_pool:
-            additions, deletions, sampled = fetch_line_stats_sample(
-                line_stats_pool, headers,
-            )
-        avg_add = round(additions / sampled) if sampled else 0
-        avg_del = round(deletions / sampled) if sampled else 0
-
         result = {
             "username": username,
             "total_prs": pr_count,
@@ -995,8 +977,6 @@ def main():
             "avg_first_comment_hrs": avg_first_comment_hrs,
             "reviews_given": reviews_given,
             "prs_commented_on": prs_commented,
-            "avg_additions_per_commit": avg_add,
-            "avg_deletions_per_commit": avg_del,
         }
         results.append(result)
 
@@ -1009,8 +989,7 @@ def main():
               f"| Coding days/week: {coding_str} "
               f"| Weekend commits: {wknd_commits}")
         print(f"  Quality:   Merge time: {merge_str} "
-              f"| Active repos: {active_repos} "
-              f"| Lines/commit: +{avg_add}/-{avg_del}")
+              f"| Active repos: {active_repos}")
         print(f"  Collab:    Reviews: {reviews_given} "
               f"| PRs commented: {prs_commented} "
               f"| Reaction time: {reaction_str} "
