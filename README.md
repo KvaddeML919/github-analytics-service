@@ -38,19 +38,28 @@ Double-click **"GitHub Stats"** on your Desktop. It will:
 
 ## Metrics
 
+All commit-based metrics include PR branch commits (not just default-branch commits), so results are accurate regardless of whether your repos use squash merge, merge commits, or rebase.
+
 | Category | Metric | Description |
 |---|---|---|
 | **Activity** | Total PRs | PRs opened in the lookback period |
 | | PRs per working day | PRs / weekdays (Mon-Fri) |
 | | Merged PRs & Merge Rate | Count and percentage of PRs that were merged |
-| | Total Commits | Commits in the lookback period |
-| | Commits per working day | Commits / weekdays |
-| | Avg Coding Days/Week | Average weekday days with at least 1 commit, per active week (zero-commit weeks excluded) |
+| | Total Commits | Unique commits across default branch and PR branches (merged + open/draft) |
+| | Commits per working day | Total commits / weekdays |
+| | Avg Coding Days/Week | Average days per week with at least 1 non-merge commit, per active week (zero-commit weeks excluded). Follows [Flow's definition](https://appfire.atlassian.net/wiki/spaces/FD/pages/1802502326/Coding+days) -- includes weekends, excludes merge commits, normalizes partial weeks |
+| | Weekend Commits | Total commits on Sat/Sun, including PR branch activity |
 | **Collaboration** | Reviews Given | PRs formally reviewed by the user |
 | | PRs Commented On | Other people's PRs where the user left comments |
 | **Quality** | Avg Time-to-Merge | Average hours from PR creation to merge |
 | | Active Repos | Distinct repositories the user committed to |
-| | Avg Lines per Commit | Average additions and deletions per commit (sampled from 5 recent commits) |
+| | Avg Lines per Commit | Average additions and deletions per commit (sampled from 5 recent branch-level commits) |
+
+### How PR branch commits work
+
+GitHub's commit search API only indexes commits on the default branch. For repos that use **squash merge**, each PR's individual branch commits are collapsed into a single squash commit, hiding the actual coding activity. To fix this, the tool fetches each PR's branch commits directly via the GitHub PR API and merges them (deduplicated by SHA) with the search results. This ensures accurate stats regardless of merge strategy.
+
+This adds one API call per merged/open PR, so expect longer run times for users with many PRs. You'll see `Fetching PR branch commits (N PRs) ...` during the run.
 
 ### Output
 
@@ -156,3 +165,4 @@ Your `org.txt` and `team.txt` will be preserved since they're gitignored.
 | `pip: command not found` | macOS uses `pip3` | Use `pip3 install -r requirements.txt` |
 | `python: command not found` | macOS uses `python3` | Use `python3 github_stats.py` |
 | Rate limit errors | Too many runs in a short period | Wait a few minutes and retry |
+| Slow run | PR branch commits are fetched per-PR | Normal for users with many PRs; use a shorter lookback or specific team to reduce |
