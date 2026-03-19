@@ -6,6 +6,7 @@ import re
 import sys
 import time
 from collections import defaultdict, OrderedDict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -407,6 +408,9 @@ def count_active_repos(commit_items):
     })
 
 
+PR_BRANCH_WORKERS = 8
+
+
 def fetch_pr_branch_commits(pr_items, headers, username):
     """Fetch commit objects from PR branches authored by ``username``.
 
@@ -415,21 +419,25 @@ def fetch_pr_branch_commits(pr_items, headers, username):
     open/draft PR branches are never on the default branch. This
     retrieves them via the PR commits endpoint.
 
+    Uses a thread pool for concurrent fetching (up to PR_BRANCH_WORKERS
+    parallel requests).
+
     Returns a list of commit dicts (deduplicated by SHA). Each dict is
     compatible with the search-commits format: it contains at least
     ``sha``, ``commit.committer.date``, ``parents``, and a synthesised
     ``repository.full_name`` extracted from the PR URL.
     """
-    commits = []
-    seen_shas = set()
     total = len(pr_items)
     if not total:
-        return commits
+        return []
     print(f"  Fetching PR branch commits ({total} PRs) ...")
-    for item in pr_items:
+
+    uname = username.lower()
+
+    def _fetch_one(item):
         pr_url = (item.get("pull_request") or {}).get("url")
         if not pr_url:
-            continue
+            return []
         repo_match = re.match(r".*/repos/([^/]+/[^/]+)/pulls/", pr_url)
         repo_name = repo_match.group(1) if repo_match else None
         try:
@@ -440,19 +448,28 @@ def fetch_pr_branch_commits(pr_items, headers, username):
                 timeout=30,
             )
             if resp.status_code == 200:
+                result = []
                 for c in resp.json():
                     author = c.get("author")
-                    if author is not None and author.get("login", "").lower() != username.lower():
+                    if author is not None and author.get("login", "").lower() != uname:
                         continue
-                    sha = c.get("sha")
-                    if sha and sha not in seen_shas:
-                        seen_shas.add(sha)
-                        if repo_name:
-                            c.setdefault("repository", {})["full_name"] = repo_name
-                        commits.append(c)
-            time.sleep(COMMIT_API_DELAY_SECONDS)
+                    if repo_name:
+                        c.setdefault("repository", {})["full_name"] = repo_name
+                    result.append(c)
+                return result
         except Exception:
-            continue
+            pass
+        return []
+
+    commits = []
+    seen_shas = set()
+    with ThreadPoolExecutor(max_workers=PR_BRANCH_WORKERS) as pool:
+        for batch in pool.map(_fetch_one, pr_items):
+            for c in batch:
+                sha = c.get("sha")
+                if sha and sha not in seen_shas:
+                    seen_shas.add(sha)
+                    commits.append(c)
     return commits
 
 
@@ -682,9 +699,12 @@ def main():
     total = len(team_members)
     scope_label = "All teams" if len(run_teams) > 1 else list(run_teams.keys())[0]
     search_calls_per_user = 6
+    avg_prs_per_user = 100
+    pr_fetch_seconds = avg_prs_per_user / PR_BRANCH_WORKERS
     est_min = round(
         (total * search_calls_per_user * SEARCH_API_DELAY_SECONDS
-         + total * LINE_STATS_SAMPLE_SIZE * COMMIT_API_DELAY_SECONDS) / 60,
+         + total * LINE_STATS_SAMPLE_SIZE * COMMIT_API_DELAY_SECONDS
+         + total * pr_fetch_seconds) / 60,
         1,
     )
 
