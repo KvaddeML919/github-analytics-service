@@ -320,27 +320,48 @@ def compute_avg_merge_hours(merged_items):
     return round(sum(durations) / len(durations), 1) if durations else None
 
 
-def compute_avg_coding_days(commit_items):
-    """Average weekday coding days per active week (weeks with 0 commits excluded)."""
-    weekday_dates = set()
+def compute_avg_coding_days(commit_items, start_date, end_date):
+    """Average coding days per week following Flow's definition.
+
+    All days (including weekends) count. Merge commits are excluded.
+    Zero-commit weeks are excluded from the denominator.
+    Partial weeks at period boundaries use Flow's normalization:
+        (coding_days / total_days) * min(7, total_days)
+    """
+    coding_dates = set()
     for item in commit_items:
+        if len(item.get("parents", [])) > 1:
+            continue
         committer = item.get("commit", {}).get("committer", {})
         date_str = committer.get("date")
         if not date_str:
             continue
         dt = _parse_iso(date_str).astimezone(MYT).date()
-        if dt.weekday() < 5:
-            weekday_dates.add(dt)
+        if start_date <= dt <= end_date:
+            coding_dates.add(dt)
 
-    if not weekday_dates:
+    if not coding_dates:
         return None
 
-    weeks = defaultdict(set)
-    for d in weekday_dates:
-        weeks[d.isocalendar()[:2]].add(d)
+    period_days_by_week = defaultdict(int)
+    current = start_date
+    while current <= end_date:
+        period_days_by_week[current.isocalendar()[:2]] += 1
+        current += timedelta(days=1)
 
-    coding_days_per_week = [len(days) for days in weeks.values()]
-    return round(sum(coding_days_per_week) / len(coding_days_per_week), 1)
+    coding_days_by_week = defaultdict(set)
+    for d in coding_dates:
+        coding_days_by_week[d.isocalendar()[:2]].add(d)
+
+    active_weeks = set(coding_days_by_week.keys())
+    total_coding_days = sum(len(days) for days in coding_days_by_week.values())
+    total_days = sum(period_days_by_week[wk] for wk in active_weeks)
+
+    if total_days == 0:
+        return None
+
+    result = (total_coding_days / total_days) * min(7, total_days)
+    return round(result, 1)
 
 
 def compute_weekend_commits(commit_items, start_date, end_date):
@@ -638,7 +659,7 @@ def main():
         commits_per_wd = round(commit_count / working_days, 2) if working_days else 0
         merge_rate = round(merged_count / pr_count * 100, 1) if pr_count else 0.0
         avg_merge_hrs = compute_avg_merge_hours(merged_items)
-        avg_coding_days = compute_avg_coding_days(commit_items)
+        avg_coding_days = compute_avg_coding_days(commit_items, since.date(), now.date())
         wknd_commits, avg_wknd_commits = compute_weekend_commits(
             commit_items, since.date(), now.date(),
         )
