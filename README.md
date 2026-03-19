@@ -106,6 +106,8 @@ All times are in **MYT (UTC+8)**. Commit metrics include PR branch commits — n
 
 | Metric | What it tells you |
 |---|---|
+| **Reaction Time (hrs)** | Average hours from PR creation until the first review or comment from a teammate — measures how quickly the team responds to new PRs |
+| **Time to 1st Comment (hrs)** | Average hours from PR creation until the first comment from a teammate — similar to reaction time but comment-only |
 | **Reviews Given** | PRs where the user submitted a formal review (Approve / Request Changes / Comment) |
 | **PRs Commented On** | Other people's PRs where the user left comments (excludes own PRs) |
 
@@ -123,15 +125,17 @@ All times are in **MYT (UTC+8)**. Commit metrics include PR branch commits — n
 - **High Coding Days + low Commits/Day** → steady, spread-out work
 - **Low Coding Days + high Commits/Day** → bursty, concentrated coding sessions
 - **High PRs but low Merge Rate** → possible bottleneck in reviews or PR quality
+- **High Reaction Time** → PRs sit waiting for feedback — review process may need attention
 - **High Reviews Given** → active code reviewer, contributing to team quality
 - **Large Avg Lines Added/Removed** → big changes per commit (could mean fewer, larger PRs)
 
 ## 6. Output Format
 
-- **Console:** two summary tables (Activity, Collaboration & Quality) sorted by total commits
+- **Console:** two summary tables (Activity, Collaboration & Quality) sorted by total commits, with a **Team Average** row at the bottom
 - **Excel:** timestamped file (e.g. `github_stats_20260319_120000.xlsx`)
   - **All teams** → "All" sheet + one sheet per team
   - **Specific team** → single sheet
+  - Each sheet includes a styled **Team Average** row below the individual rows (when 2+ members)
 
 ## 7. Configuration
 

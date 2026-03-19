@@ -473,6 +473,101 @@ def fetch_pr_branch_commits(pr_items, headers, username):
     return commits
 
 
+def fetch_pr_response_times(pr_items, headers, username):
+    """Compute reaction time and time-to-first-comment for a user's PRs.
+
+    For each PR authored by ``username``, fetches reviews and issue comments
+    to find the earliest response from someone other than the author.
+
+    Returns (avg_reaction_hrs, avg_first_comment_hrs) as floats rounded to 1
+    decimal, or None when no data is available.  Reaction time considers both
+    reviews and comments; time-to-first-comment considers only comments.
+    """
+    if not pr_items:
+        return None, None
+
+    uname = username.lower()
+    print(f"  Fetching PR response times ({len(pr_items)} PRs) ...")
+
+    def _parse_iso(ts):
+        if not ts:
+            return None
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+    def _fetch_one(item):
+        pr_url = (item.get("pull_request") or {}).get("url")
+        created_str = item.get("created_at")
+        if not pr_url or not created_str:
+            return None, None
+        created = _parse_iso(created_str)
+        if created is None:
+            return None, None
+
+        first_review_dt = None
+        first_comment_dt = None
+
+        try:
+            resp = requests.get(
+                f"{pr_url}/reviews",
+                headers=headers,
+                params={"per_page": 100},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                for rv in resp.json():
+                    reviewer = (rv.get("user") or {}).get("login", "").lower()
+                    if reviewer == uname:
+                        continue
+                    submitted = _parse_iso(rv.get("submitted_at"))
+                    if submitted and (first_review_dt is None or submitted < first_review_dt):
+                        first_review_dt = submitted
+                        break
+        except Exception:
+            pass
+
+        issue_url = pr_url.replace("/pulls/", "/issues/")
+        try:
+            resp = requests.get(
+                f"{issue_url}/comments",
+                headers=headers,
+                params={"per_page": 100},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                for cm in resp.json():
+                    commenter = (cm.get("user") or {}).get("login", "").lower()
+                    if commenter == uname:
+                        continue
+                    commented = _parse_iso(cm.get("created_at"))
+                    if commented and (first_comment_dt is None or commented < first_comment_dt):
+                        first_comment_dt = commented
+                        break
+        except Exception:
+            pass
+
+        reaction_dt = None
+        for dt in (first_review_dt, first_comment_dt):
+            if dt and (reaction_dt is None or dt < reaction_dt):
+                reaction_dt = dt
+
+        reaction_hrs = (reaction_dt - created).total_seconds() / 3600 if reaction_dt else None
+        comment_hrs = (first_comment_dt - created).total_seconds() / 3600 if first_comment_dt else None
+        return reaction_hrs, comment_hrs
+
+    reaction_hours = []
+    comment_hours = []
+    with ThreadPoolExecutor(max_workers=PR_BRANCH_WORKERS) as pool:
+        for r_hrs, c_hrs in pool.map(_fetch_one, pr_items):
+            if r_hrs is not None:
+                reaction_hours.append(r_hrs)
+            if c_hrs is not None:
+                comment_hours.append(c_hrs)
+
+    avg_reaction = round(sum(reaction_hours) / len(reaction_hours), 1) if reaction_hours else None
+    avg_comment = round(sum(comment_hours) / len(comment_hours), 1) if comment_hours else None
+    return avg_reaction, avg_comment
+
+
 def fetch_line_stats_sample(commit_items, headers):
     """Hit the Commits API for a small sample to get additions / deletions.
 
@@ -539,6 +634,8 @@ _COLUMNS = [
     ("Coding Days / Week",        "avg_coding_days_per_week",  18),
     ("Weekend Commits",           "weekend_commits",           16),
     ("Active Repos",              "active_repos",              12),
+    ("Reaction Time (hrs)",       "avg_reaction_time_hrs",     18),
+    ("Time to 1st Comment (hrs)", "avg_first_comment_hrs",     22),
     ("Reviews Given",             "reviews_given",             14),
     ("PRs Commented On",          "prs_commented_on",          17),
     ("Avg Lines Added / Commit",  "avg_additions_per_commit",  22),
@@ -553,6 +650,8 @@ _TEAM_AVG_KEYS = [
     "commits_per_coding_day",
     "avg_coding_days_per_week",
     "weekend_commits",
+    "avg_reaction_time_hrs",
+    "avg_first_comment_hrs",
     "reviews_given",
     "prs_commented_on",
     "avg_additions_per_commit",
@@ -661,9 +760,10 @@ def _print_console_tables(results, team_avg=None):
         print("─" * len(hdr1))
         _print_activity_row(team_avg)
 
-    print(f"\n{'─' * 110}")
+    print(f"\n{'─' * 120}")
     print("COLLABORATION & QUALITY")
     hdr2 = (f"{'Username':<20} {'Reviews':>8} {'Commented':>10} "
+            f"{'Reaction':>9} {'1st Cmt':>8} "
             f"{'Merge Time':>11} {'Repos':>6} {'Lines Added':>12} {'Lines Removed':>14}")
     print(hdr2)
     print("─" * len(hdr2))
@@ -671,6 +771,8 @@ def _print_console_tables(results, team_avg=None):
     def _print_collab_row(r):
         m = r.get("avg_merge_time_hrs")
         merge_str = f"{m}h" if m is not None else "N/A"
+        react_str = _fmt_val(r.get("avg_reaction_time_hrs"), suffix="h")
+        cmt_str = _fmt_val(r.get("avg_first_comment_hrs"), suffix="h")
         add_str = _fmt_val(r.get("avg_additions_per_commit"), prefix="+")
         del_str = _fmt_val(r.get("avg_deletions_per_commit"), prefix="-")
         reviews = _fmt_val(r.get("reviews_given"), na="")
@@ -679,6 +781,8 @@ def _print_console_tables(results, team_avg=None):
         print(f"{r['username']:<20} "
               f"{reviews:>8} "
               f"{commented:>10} "
+              f"{react_str:>9} "
+              f"{cmt_str:>8} "
               f"{merge_str:>11} "
               f"{repos:>6} "
               f"{add_str:>12} "
@@ -773,7 +877,8 @@ def main():
     scope_label = "All teams" if len(run_teams) > 1 else list(run_teams.keys())[0]
     search_calls_per_user = 6
     avg_prs_per_user = 100
-    pr_fetch_seconds = avg_prs_per_user / PR_BRANCH_WORKERS
+    pr_calls_per_pr = 3  # branch commits + reviews + comments
+    pr_fetch_seconds = avg_prs_per_user * pr_calls_per_pr / PR_BRANCH_WORKERS
     est_min = round(
         (total * search_calls_per_user * SEARCH_API_DELAY_SECONDS
          + total * LINE_STATS_SAMPLE_SIZE * COMMIT_API_DELAY_SECONDS
@@ -840,6 +945,11 @@ def main():
         )
         active_repos = count_active_repos(all_commit_items)
 
+        # PR response times (reaction time + time to first comment)
+        avg_reaction_hrs, avg_first_comment_hrs = fetch_pr_response_times(
+            all_pr_items, headers, username,
+        )
+
         line_stats_pool = unique_pr_commits if unique_pr_commits else commit_items
         additions = deletions = sampled = 0
         if line_stats_pool:
@@ -861,6 +971,8 @@ def main():
             "avg_coding_days_per_week": avg_coding_days,
             "weekend_commits": wknd_commits,
             "active_repos": active_repos,
+            "avg_reaction_time_hrs": avg_reaction_hrs,
+            "avg_first_comment_hrs": avg_first_comment_hrs,
             "reviews_given": reviews_given,
             "prs_commented_on": prs_commented,
             "avg_additions_per_commit": avg_add,
@@ -870,6 +982,8 @@ def main():
 
         merge_str = f"{avg_merge_hrs}h" if avg_merge_hrs is not None else "N/A"
         coding_str = f"{avg_coding_days}" if avg_coding_days is not None else "N/A"
+        reaction_str = f"{avg_reaction_hrs}h" if avg_reaction_hrs is not None else "N/A"
+        comment_str = f"{avg_first_comment_hrs}h" if avg_first_comment_hrs is not None else "N/A"
         print(f"  Activity:  PRs: {pr_count} ({prs_per_wd}/working day, {merge_rate}% merged) "
               f"| Commits: {total_commit_count} ({commits_per_cd}/day) "
               f"| Coding days/week: {coding_str} "
@@ -878,7 +992,9 @@ def main():
               f"| Active repos: {active_repos} "
               f"| Lines/commit: +{avg_add}/-{avg_del}")
         print(f"  Collab:    Reviews: {reviews_given} "
-              f"| PRs commented: {prs_commented}")
+              f"| PRs commented: {prs_commented} "
+              f"| Reaction time: {reaction_str} "
+              f"| 1st comment: {comment_str}")
 
     results.sort(key=lambda r: r["total_commits"], reverse=True)
     results_by_user = {r["username"]: r for r in results}
