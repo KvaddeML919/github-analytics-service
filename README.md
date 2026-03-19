@@ -1,130 +1,25 @@
 # GitHub Team Stats
 
-Pulls PR, commit, and collaboration stats per team member from a GitHub org.
+Generates per-engineer PR, commit, and collaboration metrics for a GitHub organization. Outputs to console and a timestamped Excel file.
 
-## Quick Install (macOS)
+---
 
-Open Terminal and run:
+## 1. Prerequisites
+
+- **macOS** with Python 3 (pre-installed on modern Macs)
+- A **GitHub Classic Personal Access Token** — see [Token Setup](#3-github-token-setup)
+
+## 2. Installation
+
+### Quick install (recommended)
 
 ```bash
 curl -O https://raw.githubusercontent.com/KvaddeML919/GitHub-basic-stats-karteek/main/install.sh && bash install.sh
 ```
 
-The installer will:
+The installer clones the repo to `~/github-stats`, installs dependencies, asks for your org name and team usernames, and creates a **"GitHub Stats"** Desktop shortcut.
 
-1. Clone the repo to `~/github-stats`
-2. Install Python dependencies
-3. Ask for your GitHub organization name (saved for future runs)
-4. Prompt you to enter team member GitHub usernames (saved for future runs)
-5. Create a **"GitHub Stats"** shortcut on your Desktop
-
-### Prerequisites
-
-- macOS with Python 3 (pre-installed on modern Macs)
-- A GitHub Classic Personal Access Token (see [Token Setup](#github-token-setup) below)
-
-## Usage
-
-Double-click **"GitHub Stats"** on your Desktop. It will:
-
-1. Ask you to paste your GitHub token (or pick it up from `GITHUB_TOKEN` env var if set)
-2. Validate the token -- clear error messages if scopes are missing or SSO isn't configured
-3. Show your teams and ask whether to run for **all teams** or a **specific team**
-4. Ask how many days to look back (default: 90)
-5. Run the stats and display results
-6. Export a timestamped Excel file (`.xlsx`) to `~/github-stats/`
-   - **All teams** → "All" sheet + one sheet per team
-   - **Specific team** → single sheet for that team only (faster, fewer API calls)
-
-## Metrics
-
-All commit-based metrics include PR branch commits (not just default-branch commits), so results are accurate regardless of whether your repos use squash merge, merge commits, or rebase.
-
-| Category | Metric | Description |
-|---|---|---|
-| **Activity** | Total PRs | PRs opened in the lookback period |
-| | PRs / Working Day | PRs / weekdays (Mon-Fri) |
-| | Merged PRs & Merge Rate | Count and percentage of PRs that were merged |
-| | Total Commits | Unique commits across default branch and PR branches (merged, open, draft, and closed) |
-| | Commits / Day | Average commits on days when the user actually coded |
-| | Coding Days | Average days per week with at least 1 non-merge commit, per active week (zero-commit weeks excluded). Follows [Flow's definition](https://appfire.atlassian.net/wiki/spaces/FD/pages/1802502326/Coding+days) -- includes weekends, excludes merge commits, normalizes partial weeks |
-| | Weekend Commits | Total commits on Sat/Sun, including PR branch activity |
-| **Collaboration** | Reviews Given | PRs formally reviewed by the user |
-| | PRs Commented On | Other people's PRs where the user left comments |
-| **Quality** | Avg Merge Time | Average hours from PR creation to merge |
-| | Active Repos | Distinct repositories the user committed to |
-| | Avg Lines Added / Commit | Average additions per commit (sampled from 5 recent branch-level commits) |
-| | Avg Lines Removed / Commit | Average deletions per commit (sampled from 5 recent branch-level commits) |
-
-### How PR branch commits work
-
-GitHub's commit search API only indexes commits on the default branch. For repos that use **squash merge**, each PR's individual branch commits are collapsed into a single squash commit, hiding the actual coding activity. To fix this, the tool fetches each PR's branch commits directly via the GitHub PR API and merges them (deduplicated by SHA) with the search results. This ensures accurate stats regardless of merge strategy.
-
-This adds one API call per merged/open PR, so expect longer run times for users with many PRs. You'll see `Fetching PR branch commits (N PRs) ...` during the run.
-
-### Output
-
-- **Per-user progress** printed as it runs
-- **Two summary tables** (sorted by most commits):
-  - **Activity** -- PRs, PRs/Day, Merged%, Commits, Cmts/Day, Coding Days, Wknd Cmts
-  - **Collaboration & Quality** -- Reviews, Commented, Merge Time, Repos, Lines Added, Lines Removed
-- **A timestamped Excel file** (e.g. `github_stats_20260318_120000.xlsx`):
-  - Running for **all teams**: an **"All"** sheet containing every member, plus one **sheet per team**
-  - Running for a **specific team**: a single sheet for that team only
-
-## GitHub Token Setup
-
-Create a **Classic** Personal Access Token at https://github.com/settings/tokens
-
-### Required scopes
-
-- **`repo`** (top-level checkbox -- "Full control of private repositories"). Do NOT just select sub-scopes like `repo:status` or `public_repo` -- those won't give access to private repos.
-- **`read:org`**
-
-### SSO authorization (required for enterprise orgs)
-
-If your GitHub org uses SAML SSO (most enterprise orgs do):
-
-1. Go to https://github.com/settings/tokens
-2. Find your token in the list
-3. Click **"Configure SSO"** next to it
-4. **Authorize** it for your organization
-5. Complete the SSO login if prompted
-
-Without this step, all stats will return as zero even if the token scopes are correct.
-
-> **Note:** After updating token scopes or enabling SSO, GitHub may take 1-2 minutes to propagate the changes. If you still see zeros right after updating, wait a minute and try again.
-
-## Configuration
-
-### Organization
-
-Edit `~/github-stats/org.txt` to change the GitHub org. This is set during install and is gitignored.
-
-### Team members
-
-Edit `~/github-stats/team.txt`. Use `[TeamName]` headers to group members by team:
-
-```
-[Payments]
-user1
-user2
-
-[BV]
-user3
-user4
-```
-
-Each team gets its own sheet in the Excel output. Members listed without a header go into an "Ungrouped" team. This file is set during install and is gitignored.
-
-### Other settings
-
-Edit the top of `github_stats.py` to change:
-- `DEFAULT_LOOKBACK_DAYS` -- default when you press Enter at the prompt (default: 90)
-
-## Manual Setup (alternative)
-
-If you prefer not to use the installer:
+### Manual install
 
 ```bash
 git clone https://github.com/KvaddeML919/GitHub-basic-stats-karteek.git ~/github-stats
@@ -132,38 +27,138 @@ cd ~/github-stats
 pip3 install -r requirements.txt
 ```
 
-Create `org.txt` with your GitHub org name and `team.txt` with `[TeamName]` headers and usernames (see [Team members](#team-members) above), then run:
+Then create two files in `~/github-stats/`:
 
-```bash
-python3 github_stats.py
+- **`org.txt`** — your GitHub org name (one line, e.g. `my-company`)
+- **`team.txt`** — team members grouped by team:
+
+```
+[Payments]
+alice
+bob
+
+[Platform]
+carol
+dave
 ```
 
-You can also pass the lookback period as an argument:
+Members without a `[TeamName]` header go into "Ungrouped".
+
+## 3. GitHub Token Setup
+
+Create a **Classic** token at https://github.com/settings/tokens.
+
+**Required scopes:**
+
+| Scope | Why |
+|---|---|
+| `repo` (top-level checkbox) | Access private repos. Don't just select sub-scopes like `repo:status`. |
+| `read:org` | Read org membership |
+
+**If your org uses SAML SSO** (most enterprise orgs):
+
+1. Go to https://github.com/settings/tokens
+2. Click **Configure SSO** next to your token
+3. **Authorize** it for your organization
+
+Without SSO authorization, all stats will return zero even with correct scopes.
+
+> Token/SSO changes may take 1–2 minutes to propagate.
+
+## 4. Running the Tool
+
+**Option A:** Double-click the **"GitHub Stats"** shortcut on your Desktop.
+
+**Option B:** Run from terminal:
 
 ```bash
-python3 github_stats.py 30
+cd ~/github-stats
+python3 github_stats.py        # default 90-day lookback
+python3 github_stats.py 30     # custom lookback (days)
 ```
 
-## Updating
+The tool will:
 
-To get the latest version, re-run the install command or:
+1. Prompt for your token (or read from `GITHUB_TOKEN` env var)
+2. Validate token scopes and SSO access
+3. Ask to run for **all teams** or a **specific team**
+4. Ask lookback period (default: 90 days)
+5. Print per-user progress, then summary tables
+6. Export a timestamped `.xlsx` file to `~/github-stats/`
+
+## 5. Understanding the Metrics
+
+All times are in **MYT (UTC+8)**. Commit metrics include PR branch commits — not just default-branch commits — so results are accurate even with squash-merge workflows.
+
+### Activity
+
+| Metric | What it tells you |
+|---|---|
+| **Total PRs** | PRs opened in the lookback period |
+| **PRs / Working Day** | PRs per weekday (Mon–Fri) — measures PR throughput |
+| **Merged PRs / Merge Rate %** | How many PRs were merged and at what rate |
+| **Total Commits** | All unique commits (default branch + PR branches for merged, open, draft, and closed PRs) |
+| **Commits / Day** | Average commits per coding day — measures intensity on active days |
+| **Coding Days / Week** | Average days per week with at least one non-merge commit. Only active weeks count; partial weeks are normalized. Aligns with [Flow's definition](https://appfire.atlassian.net/wiki/spaces/FD/pages/1802502326/Coding+days) |
+| **Weekend Commits** | Total commits on Sat/Sun |
+
+### Collaboration
+
+| Metric | What it tells you |
+|---|---|
+| **Reviews Given** | PRs where the user submitted a formal review (Approve / Request Changes / Comment) |
+| **PRs Commented On** | Other people's PRs where the user left comments (excludes own PRs) |
+
+### Quality
+
+| Metric | What it tells you |
+|---|---|
+| **Avg Merge Time (hrs)** | Average hours from PR creation to merge — lower is faster turnaround |
+| **Active Repos** | Distinct repos the user committed to — measures breadth of contribution |
+| **Avg Lines Added / Commit** | Average additions per commit (sampled from 5 recent PR-branch commits) |
+| **Avg Lines Removed / Commit** | Average deletions per commit (sampled from 5 recent PR-branch commits) |
+
+### How to interpret
+
+- **High Coding Days + low Commits/Day** → steady, spread-out work
+- **Low Coding Days + high Commits/Day** → bursty, concentrated coding sessions
+- **High PRs but low Merge Rate** → possible bottleneck in reviews or PR quality
+- **High Reviews Given** → active code reviewer, contributing to team quality
+- **Large Avg Lines Added/Removed** → big changes per commit (could mean fewer, larger PRs)
+
+## 6. Output Format
+
+- **Console:** two summary tables (Activity, Collaboration & Quality) sorted by total commits
+- **Excel:** timestamped file (e.g. `github_stats_20260319_120000.xlsx`)
+  - **All teams** → "All" sheet + one sheet per team
+  - **Specific team** → single sheet
+
+## 7. Configuration
+
+| File | Purpose | Set during install? | Gitignored? |
+|---|---|---|---|
+| `org.txt` | GitHub org name | Yes | Yes |
+| `team.txt` | Team members and groupings | Yes | Yes |
+| `github_stats.py` (top) | `DEFAULT_LOOKBACK_DAYS` (default: 90) | No | No |
+
+## 8. Updating
 
 ```bash
 cd ~/github-stats && git pull
 ```
 
-Your `org.txt` and `team.txt` will be preserved since they're gitignored.
+`org.txt` and `team.txt` are preserved (gitignored).
 
-## Troubleshooting
+## 9. Troubleshooting
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| "Token is invalid or expired" | Token was revoked or mistyped | Create a new token at github.com/settings/tokens |
-| "Missing required scope(s): repo" | Token scopes incomplete | Edit the token and check the top-level `repo` checkbox |
-| "Cannot access the org" | Token not SSO-authorized | Configure SSO (see above) |
-| All stats zero | Token scopes or SSO issue | Check the error messages from token validation |
-| Some users zero | Username doesn't match their GitHub account | Verify at `github.com/<username>` |
-| `pip: command not found` | macOS uses `pip3` | Use `pip3 install -r requirements.txt` |
-| `python: command not found` | macOS uses `python3` | Use `python3 github_stats.py` |
-| Rate limit errors | Too many runs in a short period | Wait a few minutes and retry |
-| Slow run | PR branch commits are fetched per-PR | Normal for users with many PRs; use a shorter lookback or specific team to reduce |
+| Symptom | Fix |
+|---|---|
+| "Token is invalid or expired" | Create a new token at github.com/settings/tokens |
+| "Missing required scope(s): repo" | Edit token → check the top-level `repo` checkbox |
+| "Cannot access the org" | Configure SSO for your token (see [Token Setup](#3-github-token-setup)) |
+| All stats zero | Token scopes or SSO issue — check the error messages |
+| Some users zero | Verify the GitHub username at `github.com/<username>` |
+| `pip: command not found` | Use `pip3 install -r requirements.txt` |
+| `python: command not found` | Use `python3 github_stats.py` |
+| Rate limit errors | Wait a few minutes and retry |
+| Slow run | Normal for users with many PRs — use a shorter lookback or run a specific team |
