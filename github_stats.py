@@ -528,23 +528,23 @@ _THIN_BORDER = Border(
 )
 
 _COLUMNS = [
-    ("Username",               "username",                  14),
-    ("Total PRs",              "total_prs",                 10),
-    ("PRs/Working Day",        "prs_per_working_day",       16),
-    ("Merged PRs",             "merged_prs",                11),
-    ("Merge Rate %",           "merge_rate_pct",            12),
-    ("Avg Merge Time (hrs)",   "avg_merge_time_hrs",        20),
-    ("Total Commits",          "total_commits",             13),
-    ("Commits/Working Day",    "commits_per_working_day",   20),
-    ("Commits/Coding Day",     "commits_per_coding_day",    19),
-    ("Avg Coding Days/Week",   "avg_coding_days_per_week",  21),
-    ("Weekend Commits",        "weekend_commits",           16),
-    ("Avg Commits/Weekend",    "avg_commits_per_weekend",   20),
-    ("Active Repos",           "active_repos",              12),
-    ("Reviews Given",          "reviews_given",             14),
-    ("PRs Commented On",       "prs_commented_on",          17),
-    ("Avg +Lines/Commit",      "avg_additions_per_commit",  18),
-    ("Avg -Lines/Commit",      "avg_deletions_per_commit",  18),
+    ("Username",                  "username",                  16),
+    ("Total PRs",                 "total_prs",                 10),
+    ("PRs / Working Day",         "prs_per_working_day",       16),
+    ("Merged PRs",                "merged_prs",                11),
+    ("Merge Rate %",              "merge_rate_pct",            12),
+    ("Avg Merge Time (hrs)",      "avg_merge_time_hrs",        20),
+    ("Total Commits",             "total_commits",             13),
+    ("Commits / Working Day",     "commits_per_working_day",   20),
+    ("Commits / Day",             "commits_per_coding_day",    14),
+    ("Coding Days / Week",        "avg_coding_days_per_week",  18),
+    ("Weekend Commits",           "weekend_commits",           16),
+    ("Avg Weekend Commits",       "avg_commits_per_weekend",   20),
+    ("Active Repos",              "active_repos",              12),
+    ("Reviews Given",             "reviews_given",             14),
+    ("PRs Commented On",          "prs_commented_on",          17),
+    ("Avg Lines Added / Commit",  "avg_additions_per_commit",  22),
+    ("Avg Lines Removed / Commit","avg_deletions_per_commit",  24),
 ]
 
 
@@ -577,45 +577,44 @@ def _write_stats_sheet(ws, rows):
 
 def _print_console_tables(results):
     """Print the two summary tables to stdout."""
-    print(f"\n{'─' * 80}")
+    print(f"\n{'─' * 110}")
     print("ACTIVITY")
-    hdr1 = (f"{'Username':<20} {'PRs':>5} {'PRs/wd':>7} {'Merged%':>8} "
-            f"{'Commits':>8} {'Cmts/wd':>8} {'Cmts/cd':>8} {'CdDays/wk':>10} "
-            f"{'WkndCmts':>9} {'Cmts/wknd':>10}")
+    hdr1 = (f"{'Username':<20} {'PRs':>6} {'PRs/Day':>8} {'Merged%':>8} "
+            f"{'Commits':>8} {'Cmts/Day':>9} {'Days/Wk':>8} "
+            f"{'Wknd Cmts':>10} {'Cmts/Wknd':>10}")
     print(hdr1)
     print("─" * len(hdr1))
     for r in results:
         cd = r["avg_coding_days_per_week"]
         cd_str = f"{cd}" if cd is not None else "N/A"
         print(f"{r['username']:<20} "
-              f"{r['total_prs']:>5} "
-              f"{r['prs_per_working_day']:>7} "
+              f"{r['total_prs']:>6} "
+              f"{r['prs_per_working_day']:>8} "
               f"{r['merge_rate_pct']:>7.1f}% "
               f"{r['total_commits']:>8} "
-              f"{r['commits_per_working_day']:>8} "
-              f"{r['commits_per_coding_day']:>8} "
-              f"{cd_str:>10} "
-              f"{r['weekend_commits']:>9} "
+              f"{r['commits_per_coding_day']:>9} "
+              f"{cd_str:>8} "
+              f"{r['weekend_commits']:>10} "
               f"{r['avg_commits_per_weekend']:>10}")
 
-    print(f"\n{'─' * 80}")
+    print(f"\n{'─' * 110}")
     print("COLLABORATION & QUALITY")
     hdr2 = (f"{'Username':<20} {'Reviews':>8} {'Commented':>10} "
-            f"{'Merge(h)':>9} {'Repos':>6} {'+Lines/c':>9} {'-Lines/c':>9}")
+            f"{'Merge Time':>11} {'Repos':>6} {'Lines Added':>12} {'Lines Removed':>14}")
     print(hdr2)
     print("─" * len(hdr2))
     for r in results:
         m = r["avg_merge_time_hrs"]
-        merge_str = f"{m}" if m is not None else "N/A"
+        merge_str = f"{m}h" if m is not None else "N/A"
         add_str = f"+{r['avg_additions_per_commit']}"
         del_str = f"-{r['avg_deletions_per_commit']}"
         print(f"{r['username']:<20} "
               f"{r['reviews_given']:>8} "
               f"{r['prs_commented_on']:>10} "
-              f"{merge_str:>9} "
+              f"{merge_str:>11} "
               f"{r['active_repos']:>6} "
-              f"{add_str:>9} "
-              f"{del_str:>9}")
+              f"{add_str:>12} "
+              f"{del_str:>14}")
 
 
 # ---------------------------------------------------------------------------
@@ -800,14 +799,14 @@ def main():
 
         merge_str = f"{avg_merge_hrs}h" if avg_merge_hrs is not None else "N/A"
         coding_str = f"{avg_coding_days}" if avg_coding_days is not None else "N/A"
-        print(f"  Activity:  PRs: {pr_count} ({prs_per_wd}/wd, {merge_rate}% merged) "
-              f"| Commits: {total_commit_count} ({commits_per_wd}/wd, {commits_per_cd}/cd) "
-              f"| Coding days/wk: {coding_str} "
-              f"| Weekend: {wknd_commits} ({avg_wknd_commits}/wknd)")
-        print(f"  Quality:   Avg merge time: {merge_str} "
+        print(f"  Activity:  PRs: {pr_count} ({prs_per_wd}/working day, {merge_rate}% merged) "
+              f"| Commits: {total_commit_count} ({commits_per_cd}/day) "
+              f"| Coding days/week: {coding_str} "
+              f"| Weekend commits: {wknd_commits}")
+        print(f"  Quality:   Merge time: {merge_str} "
               f"| Active repos: {active_repos} "
-              f"| Avg lines/commit: +{avg_add}/-{avg_del}")
-        print(f"  Collab:    Reviews given: {reviews_given} "
+              f"| Lines/commit: +{avg_add}/-{avg_del}")
+        print(f"  Collab:    Reviews: {reviews_given} "
               f"| PRs commented: {prs_commented}")
 
     results.sort(key=lambda r: r["total_commits"], reverse=True)
