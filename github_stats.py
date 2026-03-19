@@ -157,6 +157,20 @@ def load_team_members():
 # GitHub API helpers
 # ---------------------------------------------------------------------------
 
+MAX_RATE_LIMIT_WAIT = 120
+
+
+def _handle_rate_limit(resp, attempt, max_attempts):
+    """Handle 403 rate-limit responses. Returns seconds to wait, or 0 to skip."""
+    reset_ts = int(resp.headers.get("X-RateLimit-Reset", time.time() + 60))
+    wait = max(reset_ts - int(time.time()), 5)
+    if wait > MAX_RATE_LIMIT_WAIT:
+        wait = MAX_RATE_LIMIT_WAIT
+    print(f"    Rate limited (attempt {attempt}/{max_attempts}). Waiting {wait}s ...")
+    time.sleep(wait)
+    return wait
+
+
 def _search_request(url, params, headers, accept=None, per_page=1):
     """Execute a GitHub search and return (total_count, items)."""
     req_headers = {**headers}
@@ -164,14 +178,11 @@ def _search_request(url, params, headers, accept=None, per_page=1):
         req_headers["Accept"] = accept
     params = {**params, "per_page": per_page, "page": 1}
 
-    for _ in range(3):
+    for attempt in range(1, 4):
         resp = requests.get(url, params=params, headers=req_headers, timeout=30)
 
         if resp.status_code == 403:
-            reset_ts = int(resp.headers.get("X-RateLimit-Reset", time.time() + 60))
-            wait = max(reset_ts - int(time.time()), 5)
-            print(f"    Rate limited. Waiting {wait}s ...")
-            time.sleep(wait)
+            _handle_rate_limit(resp, attempt, 3)
             continue
 
         if resp.status_code == 422:
@@ -213,13 +224,10 @@ def _search_all_items(endpoint, query, headers, accept=None):
         params = {"q": query, "per_page": per_page, "page": page}
 
         success = False
-        for _ in range(3):
+        for attempt in range(1, 4):
             resp = requests.get(url, params=params, headers=req_headers, timeout=30)
             if resp.status_code == 403:
-                reset_ts = int(resp.headers.get("X-RateLimit-Reset", time.time() + 60))
-                wait = max(reset_ts - int(time.time()), 5)
-                print(f"    Rate limited. Waiting {wait}s ...")
-                time.sleep(wait)
+                _handle_rate_limit(resp, attempt, 3)
                 continue
             if resp.status_code == 422:
                 return 0, []
@@ -898,6 +906,7 @@ def main():
     for i, username in enumerate(team_members, 1):
         print(f"\n[{i}/{total}] {username}")
 
+        print("  Fetching search data ...", end="", flush=True)
         pr_count = get_pr_count(username, since_date, headers, org)
         _delay()
 
@@ -916,6 +925,7 @@ def main():
         prs_commented = get_prs_commented_on(username, since_date, headers, org)
         if i < total:
             _delay()
+        print(f" done ({pr_count} PRs, {commit_count} commits)")
 
         # Fetch PR branch commits and merge with search-API commits
         all_pr_items = merged_items + unmerged_items
