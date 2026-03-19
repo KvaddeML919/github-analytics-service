@@ -320,13 +320,16 @@ def compute_avg_merge_hours(merged_items):
     return round(sum(durations) / len(durations), 1) if durations else None
 
 
-def compute_avg_coding_days(commit_items, start_date, end_date):
+def compute_avg_coding_days(commit_items, start_date, end_date, pr_dates=None):
     """Average coding days per week following Flow's definition.
 
     All days (including weekends) count. Merge commits are excluded.
     Zero-commit weeks are excluded from the denominator.
     Partial weeks at period boundaries use Flow's normalization:
         (coding_days / total_days) * min(7, total_days)
+
+    pr_dates is an optional set of dates from PR branch commits, used to
+    recover coding-day information lost by squash merges.
     """
     coding_dates = set()
     for item in commit_items:
@@ -339,6 +342,9 @@ def compute_avg_coding_days(commit_items, start_date, end_date):
         dt = _parse_iso(date_str).astimezone(MYT).date()
         if start_date <= dt <= end_date:
             coding_dates.add(dt)
+
+    if pr_dates:
+        coding_dates.update(d for d in pr_dates if start_date <= d <= end_date)
 
     if not coding_dates:
         return None
@@ -394,6 +400,48 @@ def count_active_repos(commit_items):
         for item in commit_items
         if "repository" in item
     })
+
+
+def fetch_pr_coding_dates(merged_items, headers, username):
+    """Fetch actual commit dates from merged PR branches.
+
+    GitHub's commit search only indexes default-branch commits. For
+    squash-merged PRs the individual branch commits (and their dates) are
+    lost. This retrieves them via the PR commits endpoint so coding-days
+    reflects actual activity, not just the squash-commit date.
+    """
+    coding_dates = set()
+    total = len(merged_items)
+    if not total:
+        return coding_dates
+    print(f"  Fetching PR branch commits ({total} PRs) ...")
+    for item in merged_items:
+        pr_url = (item.get("pull_request") or {}).get("url")
+        if not pr_url:
+            continue
+        try:
+            resp = requests.get(
+                f"{pr_url}/commits",
+                headers=headers,
+                params={"per_page": 250},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                for c in resp.json():
+                    author_login = (c.get("author") or {}).get("login", "")
+                    if author_login.lower() != username.lower():
+                        continue
+                    date_str = (
+                        c.get("commit", {}).get("committer", {}).get("date")
+                    )
+                    if date_str:
+                        coding_dates.add(
+                            _parse_iso(date_str).astimezone(MYT).date()
+                        )
+            time.sleep(COMMIT_API_DELAY_SECONDS)
+        except Exception:
+            continue
+    return coding_dates
 
 
 def fetch_line_stats_sample(commit_items, headers):
@@ -659,7 +707,10 @@ def main():
         commits_per_wd = round(commit_count / working_days, 2) if working_days else 0
         merge_rate = round(merged_count / pr_count * 100, 1) if pr_count else 0.0
         avg_merge_hrs = compute_avg_merge_hours(merged_items)
-        avg_coding_days = compute_avg_coding_days(commit_items, since.date(), now.date())
+        pr_dates = fetch_pr_coding_dates(merged_items, headers, username)
+        avg_coding_days = compute_avg_coding_days(
+            commit_items, since.date(), now.date(), pr_dates,
+        )
         wknd_commits, avg_wknd_commits = compute_weekend_commits(
             commit_items, since.date(), now.date(),
         )
