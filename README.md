@@ -43,17 +43,19 @@ All commit-based metrics include PR branch commits (not just default-branch comm
 | Category | Metric | Description |
 |---|---|---|
 | **Activity** | Total PRs | PRs opened in the lookback period |
-| | PRs per working day | PRs / weekdays (Mon-Fri) |
+| | PRs / Working Day | PRs / weekdays (Mon-Fri) |
 | | Merged PRs & Merge Rate | Count and percentage of PRs that were merged |
-| | Total Commits | Unique commits across default branch and PR branches (merged + open/draft) |
-| | Commits per working day | Total commits / weekdays |
-| | Avg Coding Days/Week | Average days per week with at least 1 non-merge commit, per active week (zero-commit weeks excluded). Follows [Flow's definition](https://appfire.atlassian.net/wiki/spaces/FD/pages/1802502326/Coding+days) -- includes weekends, excludes merge commits, normalizes partial weeks |
+| | Total Commits | Unique commits across default branch and PR branches (merged, open, draft, and closed) |
+| | Commits / Working Day | Total commits / weekdays |
+| | Commits / Day | Average commits on days when the user actually coded |
+| | Coding Days | Average days per week with at least 1 non-merge commit, per active week (zero-commit weeks excluded). Follows [Flow's definition](https://appfire.atlassian.net/wiki/spaces/FD/pages/1802502326/Coding+days) -- includes weekends, excludes merge commits, normalizes partial weeks |
 | | Weekend Commits | Total commits on Sat/Sun, including PR branch activity |
 | **Collaboration** | Reviews Given | PRs formally reviewed by the user |
 | | PRs Commented On | Other people's PRs where the user left comments |
-| **Quality** | Avg Time-to-Merge | Average hours from PR creation to merge |
+| **Quality** | Avg Merge Time | Average hours from PR creation to merge |
 | | Active Repos | Distinct repositories the user committed to |
-| | Avg Lines per Commit | Average additions and deletions per commit (sampled from 5 recent branch-level commits) |
+| | Avg Lines Added / Commit | Average additions per commit (sampled from 5 recent branch-level commits) |
+| | Avg Lines Removed / Commit | Average deletions per commit (sampled from 5 recent branch-level commits) |
 
 ### How PR branch commits work
 
@@ -65,8 +67,8 @@ This adds one API call per merged/open PR, so expect longer run times for users 
 
 - **Per-user progress** printed as it runs
 - **Two summary tables** (sorted by most commits):
-  - **Activity** -- PRs, PRs/wd, Merged%, Commits, Cmts/wd, CdDays/wk
-  - **Collaboration & Quality** -- Reviews, Commented, Merge(h), Repos, +Lines/c, -Lines/c
+  - **Activity** -- PRs, PRs/Day, Merged%, Commits, Cmts/Day, Coding Days, Wknd Cmts
+  - **Collaboration & Quality** -- Reviews, Commented, Merge Time, Repos, Lines Added, Lines Removed
 - **A timestamped Excel file** (e.g. `github_stats_20260318_120000.xlsx`):
   - Running for **all teams**: an **"All"** sheet containing every member, plus one **sheet per team**
   - Running for a **specific team**: a single sheet for that team only
