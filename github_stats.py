@@ -179,7 +179,12 @@ def _search_request(url, params, headers, accept=None, per_page=1):
     params = {**params, "per_page": per_page, "page": 1}
 
     for attempt in range(1, 4):
-        resp = requests.get(url, params=params, headers=req_headers, timeout=30)
+        try:
+            resp = requests.get(url, params=params, headers=req_headers, timeout=30)
+        except requests.exceptions.RequestException as exc:
+            print(f"    Request error (attempt {attempt}/3): {exc}")
+            time.sleep(5 * attempt)
+            continue
 
         if resp.status_code == 403:
             _handle_rate_limit(resp, attempt, 3)
@@ -225,7 +230,12 @@ def _search_all_items(endpoint, query, headers, accept=None):
 
         success = False
         for attempt in range(1, 4):
-            resp = requests.get(url, params=params, headers=req_headers, timeout=30)
+            try:
+                resp = requests.get(url, params=params, headers=req_headers, timeout=30)
+            except requests.exceptions.RequestException as exc:
+                print(f"    Request error (attempt {attempt}/3): {exc}")
+                time.sleep(5 * attempt)
+                continue
             if resp.status_code == 403:
                 _handle_rate_limit(resp, attempt, 3)
                 continue
