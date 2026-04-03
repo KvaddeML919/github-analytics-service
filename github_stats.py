@@ -297,11 +297,29 @@ def get_unmerged_prs(username, since, headers, org):
     )
 
 
+def get_old_merged_prs(username, since, headers, org):
+    """PRs created before the window but merged during it."""
+    return _search_all_items(
+        "/search/issues",
+        f"type:pr author:{username} org:{org} is:merged created:<{since} merged:>={since}",
+        headers,
+    )
+
+
+def get_old_open_prs(username, since, headers, org):
+    """PRs created before the window that are still open (may have recent commits)."""
+    return _search_all_items(
+        "/search/issues",
+        f"type:pr author:{username} org:{org} is:open created:<{since}",
+        headers,
+    )
+
+
 def get_commits_with_items(username, since, headers, org):
     """Return (commit_count, all commit items) with pagination."""
     return _search_all_items(
         "/search/commits",
-        f"author:{username} org:{org} committer-date:>={since}",
+        f"author:{username} org:{org} author-date:>={since}",
         headers,
         accept="application/vnd.github.cloak-preview+json",
     )
@@ -362,8 +380,8 @@ def compute_coding_day_stats(commit_items, start_date, end_date):
     for item in commit_items:
         if len(item.get("parents", [])) > 1:
             continue
-        committer = item.get("commit", {}).get("committer", {})
-        date_str = committer.get("date")
+        author = item.get("commit", {}).get("author", {})
+        date_str = author.get("date")
         if not date_str:
             continue
         dt = _parse_iso(date_str).astimezone(MYT).date()
@@ -398,12 +416,12 @@ def compute_weekend_commits(commit_items, start_date, end_date):
     """Return (total_weekend_commits, avg_commits_per_weekend) in MYT."""
     weekend_commit_count = 0
     for item in commit_items:
-        committer = item.get("commit", {}).get("committer", {})
-        date_str = committer.get("date")
+        author = item.get("commit", {}).get("author", {})
+        date_str = author.get("date")
         if not date_str:
             continue
         dt = _parse_iso(date_str).astimezone(MYT).date()
-        if dt.weekday() >= 5:
+        if start_date <= dt <= end_date and dt.weekday() >= 5:
             weekend_commit_count += 1
 
     weekends = 0
@@ -885,7 +903,7 @@ def main():
 
     total = len(team_members)
     scope_label = "All teams" if len(run_teams) > 1 else list(run_teams.keys())[0]
-    search_calls_per_user = 6
+    search_calls_per_user = 8
     avg_prs_per_user = 100
     pr_calls_per_pr = 3  # branch commits + reviews + comments
     pr_fetch_seconds = avg_prs_per_user * pr_calls_per_pr / PR_BRANCH_WORKERS
@@ -924,12 +942,29 @@ def main():
         _delay()
 
         prs_commented = get_prs_commented_on(username, since_date, headers, org)
+        _delay()
+
+        _, old_merged_items = get_old_merged_prs(username, since_date, headers, org)
+        _delay()
+
+        _, old_open_items = get_old_open_prs(username, since_date, headers, org)
         if i < total:
             _delay()
-        print(f" done ({pr_count} PRs, {commit_count} commits)")
+        print(f" done ({pr_count} PRs, {commit_count} commits, "
+              f"+{len(old_open_items)} old open, +{len(old_merged_items)} old merged)")
 
-        # Fetch PR branch commits and merge with search-API commits
-        all_pr_items = merged_items + unmerged_items
+        # Combine in-window PRs with old PRs (deduplicate by URL).
+        # Using author date for coding days means old-authored commits from
+        # long-ago merged PRs correctly fall outside the window, while
+        # recently-authored commits on any branch are captured.
+        seen_pr_urls = set()
+        all_pr_items = []
+        for item in merged_items + unmerged_items + old_merged_items + old_open_items:
+            url = item.get("html_url") or item.get("url")
+            if url and url not in seen_pr_urls:
+                seen_pr_urls.add(url)
+                all_pr_items.append(item)
+
         pr_branch_commits = fetch_pr_branch_commits(
             all_pr_items, headers, username,
         )
@@ -937,8 +972,20 @@ def main():
         unique_pr_commits = [
             c for c in pr_branch_commits if c.get("sha") not in search_shas
         ]
-        all_commit_items = commit_items + unique_pr_commits
-        total_commit_count = commit_count + len(unique_pr_commits)
+        all_commit_items_raw = commit_items + unique_pr_commits
+
+        # Filter to commits authored within the lookback window
+        all_commit_items = []
+        for item in all_commit_items_raw:
+            author = item.get("commit", {}).get("author", {})
+            date_str = author.get("date")
+            if not date_str:
+                all_commit_items.append(item)
+                continue
+            dt = _parse_iso(date_str).astimezone(MYT).date()
+            if since.date() <= dt <= now.date():
+                all_commit_items.append(item)
+        total_commit_count = len(all_commit_items)
 
         # Derived metrics
         prs_per_wd = round(pr_count / working_days, 2) if working_days else 0
@@ -956,7 +1003,6 @@ def main():
         )
         active_repos = count_active_repos(all_commit_items)
 
-        # PR response times (reaction time + time to first comment)
         avg_reaction_hrs, avg_first_comment_hrs = fetch_pr_response_times(
             all_pr_items, headers, username,
         )

@@ -88,7 +88,12 @@ The tool will:
 
 ## 5. Understanding the Metrics
 
-All times are in **MYT (UTC+8)**. Commit metrics include PR branch commits — not just default-branch commits — so results are accurate even with squash-merge workflows.
+All times are in **MYT (UTC+8)**. Commit metrics use **author date** (when code was written, not when it was rebased/pushed) and include PR branch commits — not just default-branch commits — so results are accurate even with squash-merge and rebase workflows.
+
+The tool discovers commits from three sources:
+- **Default-branch commits** via GitHub's Search API
+- **PR branch commits** for all PRs created within the lookback period (merged, open, draft, and closed)
+- **Older PR branch commits** for PRs created before the lookback period that are still open or were merged during it
 
 ### Activity
 
@@ -97,10 +102,10 @@ All times are in **MYT (UTC+8)**. Commit metrics include PR branch commits — n
 | **Total PRs** | PRs opened in the lookback period |
 | **PRs / Working Day** | PRs per weekday (Mon–Fri) — measures PR throughput |
 | **Merged PRs / Merge Rate %** | How many PRs were merged and at what rate |
-| **Total Commits** | All unique commits (default branch + PR branches for merged, open, draft, and closed PRs) |
+| **Total Commits** | Unique commits authored within the lookback period (default branch + PR branches), excluding merge commits |
 | **Commits / Day** | Average commits per coding day — measures intensity on active days |
 | **Coding Days / Week** | Average days per week with at least one non-merge commit. Only active weeks count; partial weeks are normalized. Aligns with [Flow's definition](https://appfire.atlassian.net/wiki/spaces/FD/pages/1802502326/Coding+days) |
-| **Weekend Commits** | Total commits on Sat/Sun |
+| **Weekend Commits** | Commits authored on Sat/Sun within the lookback period |
 
 ### Collaboration
 
