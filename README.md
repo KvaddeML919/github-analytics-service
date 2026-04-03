@@ -177,7 +177,7 @@ cd ~/github-stats && git pull
 | **Merge Rate %** | `merged_prs / total_prs × 100` |
 | **Total Commits** | `count(unique commits by author date in window, excluding merge commits)` |
 | **Commits / Day** | `total_commits / coding_days` |
-| **Coding Days / Week** | `(coding_days / days_in_active_weeks) × min(7, days_in_active_weeks)` — [Flow formula](https://appfire.atlassian.net/wiki/spaces/FD/pages/1802502326/Coding+days) |
+| **Coding Days / Week** | `(coding_days / days_in_active_weeks) × min(7, days_in_active_weeks)` |
 | **Weekend Commits** | `count(commits where author date falls on Sat/Sun within window)` |
 | **Avg Merge Time (hrs)** | `mean(merged_at − created_at) for each merged PR` |
 | **Active Repos** | `count(distinct repos with commits in window)` |
