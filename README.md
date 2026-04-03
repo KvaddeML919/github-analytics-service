@@ -168,3 +168,20 @@ cd ~/github-stats && git pull
 | `python: command not found` | Use `python3 github_stats.py` |
 | Rate limit errors | Wait a few minutes and retry |
 | Slow run | Normal for users with many PRs — use a shorter lookback or run a specific team |
+
+## 10. Formulas
+
+| Metric | Formula |
+|---|---|
+| **PRs / Working Day** | `total_prs / weekdays_in_period` |
+| **Merge Rate %** | `merged_prs / total_prs × 100` |
+| **Total Commits** | `count(unique commits by author date in window, excluding merge commits)` |
+| **Commits / Day** | `total_commits / coding_days` |
+| **Coding Days / Week** | `(coding_days / days_in_active_weeks) × min(7, days_in_active_weeks)` — [Flow formula](https://appfire.atlassian.net/wiki/spaces/FD/pages/1802502326/Coding+days) |
+| **Weekend Commits** | `count(commits where author date falls on Sat/Sun within window)` |
+| **Avg Merge Time (hrs)** | `mean(merged_at − created_at) for each merged PR` |
+| **Active Repos** | `count(distinct repos with commits in window)` |
+| **Reaction Time (hrs)** | `mean(first_review_or_comment_at − created_at) for each PR` |
+| **Time to 1st Comment (hrs)** | `mean(first_comment_at − created_at) for each PR` |
+| **Reviews Given** | `count(PRs where user submitted a review)` |
+| **PRs Commented On** | `count(others' PRs where user left a comment)` |
