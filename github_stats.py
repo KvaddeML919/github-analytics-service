@@ -284,7 +284,7 @@ def _collect_user_stats(
     total: int,
     since_date: str,
     since: datetime,
-    now: datetime,
+    end: datetime,
     working_days: int,
     headers: Headers,
     org: str,
@@ -331,22 +331,25 @@ def _collect_user_stats(
     ]
 
     all_commit_items = _filter_commits_by_window(
-        commit_items + unique_pr_commits, since, now,
+        commit_items + unique_pr_commits, since, end,
     )
-    total_commit_count = len(all_commit_items)
+    non_merge_items = [
+        c for c in all_commit_items if len(c.get("parents", [])) <= 1
+    ]
+    total_commit_count = len(non_merge_items)
 
     prs_per_wd = round(pr_count / working_days, 2) if working_days else 0
     merge_rate = round(merged_count / pr_count * 100, 1) if pr_count else 0.0
     avg_merge_hrs = compute_avg_merge_hours(merged_items)
     avg_coding_days, total_coding_days = compute_coding_day_stats(
-        all_commit_items, since.date(), now.date(),
+        all_commit_items, since.date(), end.date(),
     )
     commits_per_cd = (
         round(total_commit_count / total_coding_days, 1)
         if total_coding_days else 0
     )
     wknd_commits, _ = compute_weekend_commits(
-        all_commit_items, since.date(), now.date(),
+        all_commit_items, since.date(), end.date(),
     )
     active_repos = count_active_repos(all_commit_items)
 
@@ -389,7 +392,7 @@ def _dedupe_pr_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _filter_commits_by_window(
-    commit_items: List[Dict[str, Any]], since: datetime, now: datetime,
+    commit_items: List[Dict[str, Any]], since: datetime, end: datetime,
 ) -> List[Dict[str, Any]]:
     """Keep only commits whose author date falls within the lookback window."""
     filtered: List[Dict[str, Any]] = []
@@ -399,7 +402,7 @@ def _filter_commits_by_window(
             filtered.append(item)
             continue
         dt = parse_iso(date_str).astimezone(MYT).date()
-        if since.date() <= dt <= now.date():
+        if since.date() <= dt <= end.date():
             filtered.append(item)
     return filtered
 
@@ -475,11 +478,12 @@ def main() -> None:
         "Accept": "application/vnd.github.v3+json",
     }
 
-    now = datetime.now(MYT)
-    since = now - timedelta(days=lookback_days)
+    # Flow never includes the current day — the window ends yesterday.
+    end = datetime.now(MYT) - timedelta(days=1)
+    since = end - timedelta(days=lookback_days - 1)
     since_date = since.strftime("%Y-%m-%d")
-    today_date = now.strftime("%Y-%m-%d")
-    working_days = count_working_days(since.date(), now.date())
+    end_date = end.strftime("%Y-%m-%d")
+    working_days = count_working_days(since.date(), end.date())
 
     total = len(team_members)
     scope_label = "All teams" if len(run_teams) > 1 else list(run_teams.keys())[0]
@@ -491,7 +495,7 @@ def main() -> None:
 
     print(f"\nGitHub Stats for {total} team members  ({scope_label})")
     print(f"Org:            {org}")
-    print(f"Period:         {since_date} → {today_date}  "
+    print(f"Period:         {since_date} → {end_date}  "
           f"({lookback_days} calendar days, {working_days} working days)")
     print(f"Estimated time: ~{est_min} min")
     print("=" * 90)
@@ -499,7 +503,7 @@ def main() -> None:
     results: List[Row] = []
     for i, username in enumerate(team_members, 1):
         result = _collect_user_stats(
-            username, i, total, since_date, since, now, working_days, headers, org,
+            username, i, total, since_date, since, end, working_days, headers, org,
         )
         results.append(result)
 
