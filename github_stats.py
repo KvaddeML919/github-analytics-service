@@ -142,9 +142,45 @@ def load_team_members():
     "All" team with every member.
     """
     if not os.path.exists(TEAM_FILE):
-        print(f"Error: Team file not found: {TEAM_FILE}")
-        print("Create a team.txt file with one GitHub username per line.")
-        sys.exit(1)
+        print("No team file found. Let's set up your teams now.\n")
+        print("You'll enter team names first, then GitHub usernames for each team.")
+        print("Press Enter on an empty line to finish each step.\n")
+
+        teams = OrderedDict()
+        total_members = 0
+
+        while True:
+            team_name = input("  Team name (empty to finish adding teams): ").strip()
+            if not team_name:
+                break
+
+            teams[team_name] = []
+            print(f"    Adding members to {team_name}...")
+
+            while True:
+                username = input("      GitHub username (empty to finish this team): ").strip()
+                if not username:
+                    break
+                teams[team_name].append(username)
+                total_members += 1
+
+            print(f"    Added {len(teams[team_name])} member(s) to {team_name}.\n")
+
+        if total_members == 0:
+            print("Error: No team members added.")
+            sys.exit(1)
+
+        with open(TEAM_FILE, "w") as f:
+            for tname, members in teams.items():
+                f.write(f"[{tname}]\n")
+                for m in members:
+                    f.write(f"{m}\n")
+                f.write("\n")
+
+        print(f"Saved {total_members} member(s) across {len(teams)} team(s) to {TEAM_FILE}\n")
+
+        all_members = [u for members in teams.values() for u in members]
+        return all_members, teams
 
     teams = OrderedDict()
     current_team = None
