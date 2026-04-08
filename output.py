@@ -126,24 +126,24 @@ def print_console_tables(results: List[Row], team_avg: Optional[Row] = None) -> 
     print(f"\n{'─' * 110}")
     print("ACTIVITY")
     hdr1 = (f"{'Username':<20} {'PRs':>6} {'PRs/Day':>8} {'Merged%':>8} "
-            f"{'Commits':>8} {'Cmts/Day':>9} {'Coding Days':>12} "
-            f"{'Wknd Cmts':>10}")
+            f"{'Commits':>8} {'Commits/Day':>12} {'Coding Days':>12} "
+            f"{'Wknd Commits':>13}")
     print(hdr1)
     print("─" * len(hdr1))
 
     def _print_activity_row(r: Row) -> None:
         cd_str = _fmt_val(r.get("avg_coding_days_per_week"))
         prs = _fmt_val(r.get("total_prs"), na="")
-        cmts = _fmt_val(r.get("total_commits"), na="")
+        commits = _fmt_val(r.get("total_commits"), na="")
         wknd = _fmt_val(r.get("weekend_commits"), na="")
         print(f"{r.get('username', ''):<20} "
               f"{prs:>6} "
               f"{_fmt_val(r.get('prs_per_working_day')):>8} "
               f"{_fmt_val(r.get('merge_rate_pct'), suffix='%'):>8} "
-              f"{cmts:>8} "
-              f"{_fmt_val(r.get('commits_per_coding_day')):>9} "
+              f"{commits:>8} "
+              f"{_fmt_val(r.get('commits_per_coding_day')):>12} "
               f"{cd_str:>12} "
-              f"{wknd:>10}")
+              f"{wknd:>13}")
 
     for r in results:
         _print_activity_row(r)
