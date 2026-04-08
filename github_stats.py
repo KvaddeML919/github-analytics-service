@@ -4,28 +4,48 @@
 import os
 import re
 import sys
-import time
-from collections import defaultdict, OrderedDict
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from collections import OrderedDict
+from datetime import datetime, timedelta
 
 import requests
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.utils import get_column_letter
 
-GITHUB_API = "https://api.github.com"
+from github_api import (
+    SEARCH_API_DELAY_SECONDS,
+    PR_BRANCH_WORKERS,
+    delay,
+    get_pr_count,
+    get_merged_prs,
+    get_unmerged_prs,
+    get_old_merged_prs,
+    get_old_open_prs,
+    get_commits_with_items,
+    get_reviews_given,
+    get_prs_commented_on,
+    fetch_pr_branch_commits,
+    fetch_pr_response_times,
+    GITHUB_API,
+)
+from metrics import (
+    MYT,
+    parse_iso,
+    compute_avg_merge_hours,
+    compute_coding_day_stats,
+    compute_weekend_commits,
+    count_active_repos,
+    count_working_days,
+)
+from output import (
+    compute_team_averages,
+    write_stats_sheet,
+    print_console_tables,
+)
 
-TEAM_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "team.txt")
-ORG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "org.txt")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+TEAM_FILE = os.path.join(SCRIPT_DIR, "team.txt")
+ORG_FILE = os.path.join(SCRIPT_DIR, "org.txt")
 
 DEFAULT_LOOKBACK_DAYS = 90
-
-MYT = timezone(timedelta(hours=8))
-
-SEARCH_API_DELAY_SECONDS = 2.5
-COMMIT_API_DELAY_SECONDS = 1.0
-LINE_STATS_SAMPLE_SIZE = 5
 
 
 def get_token():
@@ -154,677 +174,7 @@ def load_team_members():
 
 
 # ---------------------------------------------------------------------------
-# GitHub API helpers
-# ---------------------------------------------------------------------------
-
-MAX_RATE_LIMIT_WAIT = 120
-
-
-def _handle_rate_limit(resp, attempt, max_attempts):
-    """Handle 403 rate-limit responses. Returns seconds to wait, or 0 to skip."""
-    reset_ts = int(resp.headers.get("X-RateLimit-Reset", time.time() + 60))
-    wait = max(reset_ts - int(time.time()), 5)
-    if wait > MAX_RATE_LIMIT_WAIT:
-        wait = MAX_RATE_LIMIT_WAIT
-    print(f"    Rate limited (attempt {attempt}/{max_attempts}). Waiting {wait}s ...")
-    time.sleep(wait)
-    return wait
-
-
-def _search_request(url, params, headers, accept=None, per_page=1):
-    """Execute a GitHub search and return (total_count, items)."""
-    req_headers = {**headers}
-    if accept:
-        req_headers["Accept"] = accept
-    params = {**params, "per_page": per_page, "page": 1}
-
-    for attempt in range(1, 4):
-        try:
-            resp = requests.get(url, params=params, headers=req_headers, timeout=30)
-        except requests.exceptions.RequestException as exc:
-            print(f"    Request error (attempt {attempt}/3): {exc}")
-            time.sleep(5 * attempt)
-            continue
-
-        if resp.status_code == 403:
-            _handle_rate_limit(resp, attempt, 3)
-            continue
-
-        if resp.status_code == 422:
-            return 0, []
-
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("total_count", 0), data.get("items", [])
-
-    print("    Max retries exceeded")
-    return 0, []
-
-
-def _search_count(endpoint, query, headers, accept=None):
-    count, _ = _search_request(
-        f"{GITHUB_API}{endpoint}", {"q": query}, headers, accept,
-    )
-    return count
-
-
-def _search_items(endpoint, query, headers, accept=None, per_page=10):
-    return _search_request(
-        f"{GITHUB_API}{endpoint}", {"q": query}, headers, accept, per_page,
-    )
-
-
-def _search_all_items(endpoint, query, headers, accept=None):
-    """Paginate through all search results (GitHub caps at 1000)."""
-    url = f"{GITHUB_API}{endpoint}"
-    all_items = []
-    total_count = 0
-    page = 1
-    per_page = 100
-
-    while True:
-        req_headers = {**headers}
-        if accept:
-            req_headers["Accept"] = accept
-        params = {"q": query, "per_page": per_page, "page": page}
-
-        success = False
-        for attempt in range(1, 4):
-            try:
-                resp = requests.get(url, params=params, headers=req_headers, timeout=30)
-            except requests.exceptions.RequestException as exc:
-                print(f"    Request error (attempt {attempt}/3): {exc}")
-                time.sleep(5 * attempt)
-                continue
-            if resp.status_code == 403:
-                _handle_rate_limit(resp, attempt, 3)
-                continue
-            if resp.status_code == 422:
-                return 0, []
-            resp.raise_for_status()
-            success = True
-            break
-
-        if not success:
-            print("    Max retries exceeded")
-            break
-
-        data = resp.json()
-        total_count = data.get("total_count", 0)
-        items = data.get("items", [])
-        all_items.extend(items)
-
-        if len(all_items) >= total_count or len(items) < per_page:
-            break
-
-        page += 1
-        _delay()
-
-    return total_count, all_items
-
-
-def _delay():
-    time.sleep(SEARCH_API_DELAY_SECONDS)
-
-
-# ---------------------------------------------------------------------------
-# Per-user query functions (each makes exactly one search API call)
-# ---------------------------------------------------------------------------
-
-def get_pr_count(username, since, headers, org):
-    return _search_count(
-        "/search/issues",
-        f"type:pr author:{username} org:{org} created:>={since}",
-        headers,
-    )
-
-
-def get_merged_prs(username, since, headers, org):
-    """Return (merged_count, all merged PR items) with pagination."""
-    return _search_all_items(
-        "/search/issues",
-        f"type:pr author:{username} org:{org} is:merged created:>={since}",
-        headers,
-    )
-
-
-def get_unmerged_prs(username, since, headers, org):
-    """Return (count, items) for all unmerged PRs (open, draft, and closed-without-merging)."""
-    return _search_all_items(
-        "/search/issues",
-        f"type:pr author:{username} org:{org} is:unmerged created:>={since}",
-        headers,
-    )
-
-
-def get_old_merged_prs(username, since, headers, org):
-    """PRs created before the window but merged during it."""
-    return _search_all_items(
-        "/search/issues",
-        f"type:pr author:{username} org:{org} is:merged created:<{since} merged:>={since}",
-        headers,
-    )
-
-
-def get_old_open_prs(username, since, headers, org):
-    """PRs created before the window that are still open (may have recent commits)."""
-    return _search_all_items(
-        "/search/issues",
-        f"type:pr author:{username} org:{org} is:open created:<{since}",
-        headers,
-    )
-
-
-def get_commits_with_items(username, since, headers, org):
-    """Return (commit_count, all commit items) with pagination."""
-    return _search_all_items(
-        "/search/commits",
-        f"author:{username} org:{org} author-date:>={since}",
-        headers,
-        accept="application/vnd.github.cloak-preview+json",
-    )
-
-
-def get_reviews_given(username, since, headers, org):
-    return _search_count(
-        "/search/issues",
-        f"type:pr reviewed-by:{username} org:{org} created:>={since}",
-        headers,
-    )
-
-
-def get_prs_commented_on(username, since, headers, org):
-    """PRs authored by others where this user left comments."""
-    return _search_count(
-        "/search/issues",
-        f"type:pr commenter:{username} -author:{username} org:{org} created:>={since}",
-        headers,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Derived-metric helpers
-# ---------------------------------------------------------------------------
-
-def _parse_iso(ts):
-    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-
-
-def compute_avg_merge_hours(merged_items):
-    """Average hours from PR creation to merge, based on fetched items."""
-    durations = []
-    for item in merged_items:
-        created = _parse_iso(item["created_at"])
-        merged_at = (item.get("pull_request") or {}).get("merged_at")
-        if not merged_at:
-            merged_at = item.get("closed_at")
-        if not merged_at:
-            continue
-        hours = (_parse_iso(merged_at) - created).total_seconds() / 3600
-        if hours >= 0:
-            durations.append(hours)
-    return round(sum(durations) / len(durations), 1) if durations else None
-
-
-def compute_coding_day_stats(commit_items, start_date, end_date):
-    """Return (avg_coding_days_per_week, total_coding_days).
-
-    avg_coding_days_per_week follows Flow's definition: all days
-    (including weekends) count, merge commits are excluded, zero-commit
-    weeks are excluded, partial weeks use Flow's normalization.
-
-    total_coding_days is the raw count of unique days with at least one
-    non-merge commit (used to derive commits-per-coding-day).
-    """
-    coding_dates = set()
-    for item in commit_items:
-        if len(item.get("parents", [])) > 1:
-            continue
-        author = item.get("commit", {}).get("author", {})
-        date_str = author.get("date")
-        if not date_str:
-            continue
-        dt = _parse_iso(date_str).astimezone(MYT).date()
-        if start_date <= dt <= end_date:
-            coding_dates.add(dt)
-
-    if not coding_dates:
-        return None, 0
-
-    period_days_by_week = defaultdict(int)
-    current = start_date
-    while current <= end_date:
-        period_days_by_week[current.isocalendar()[:2]] += 1
-        current += timedelta(days=1)
-
-    coding_days_by_week = defaultdict(set)
-    for d in coding_dates:
-        coding_days_by_week[d.isocalendar()[:2]].add(d)
-
-    active_weeks = set(coding_days_by_week.keys())
-    total_coding_days = sum(len(days) for days in coding_days_by_week.values())
-    total_days = sum(period_days_by_week[wk] for wk in active_weeks)
-
-    if total_days == 0:
-        return None, 0
-
-    avg = (total_coding_days / total_days) * min(7, total_days)
-    return round(avg, 1), total_coding_days
-
-
-def compute_weekend_commits(commit_items, start_date, end_date):
-    """Return (total_weekend_commits, avg_commits_per_weekend) in MYT."""
-    weekend_commit_count = 0
-    for item in commit_items:
-        author = item.get("commit", {}).get("author", {})
-        date_str = author.get("date")
-        if not date_str:
-            continue
-        dt = _parse_iso(date_str).astimezone(MYT).date()
-        if start_date <= dt <= end_date and dt.weekday() >= 5:
-            weekend_commit_count += 1
-
-    weekends = 0
-    current = start_date
-    while current <= end_date:
-        if current.weekday() == 5:
-            weekends += 1
-        current += timedelta(days=1)
-    weekends = max(weekends, 1)
-
-    avg = round(weekend_commit_count / weekends, 2) if weekend_commit_count else 0.0
-    return weekend_commit_count, avg
-
-
-def count_active_repos(commit_items):
-    return len({
-        item["repository"]["full_name"]
-        for item in commit_items
-        if "repository" in item
-    })
-
-
-PR_BRANCH_WORKERS = 8
-
-
-def fetch_pr_branch_commits(pr_items, headers, username):
-    """Fetch commit objects from PR branches authored by ``username``.
-
-    GitHub's commit search only indexes default-branch commits. For
-    squash-merged PRs the individual branch commits are lost, and
-    open/draft PR branches are never on the default branch. This
-    retrieves them via the PR commits endpoint.
-
-    Uses a thread pool for concurrent fetching (up to PR_BRANCH_WORKERS
-    parallel requests).
-
-    Returns a list of commit dicts (deduplicated by SHA). Each dict is
-    compatible with the search-commits format: it contains at least
-    ``sha``, ``commit.committer.date``, ``parents``, and a synthesised
-    ``repository.full_name`` extracted from the PR URL.
-    """
-    total = len(pr_items)
-    if not total:
-        return []
-    print(f"  Fetching PR branch commits ({total} PRs) ...")
-
-    uname = username.lower()
-
-    def _fetch_one(item):
-        pr_url = (item.get("pull_request") or {}).get("url")
-        if not pr_url:
-            return []
-        repo_match = re.match(r".*/repos/([^/]+/[^/]+)/pulls/", pr_url)
-        repo_name = repo_match.group(1) if repo_match else None
-        try:
-            resp = requests.get(
-                f"{pr_url}/commits",
-                headers=headers,
-                params={"per_page": 250},
-                timeout=30,
-            )
-            if resp.status_code == 200:
-                result = []
-                for c in resp.json():
-                    author = c.get("author")
-                    if author is not None and author.get("login", "").lower() != uname:
-                        continue
-                    if repo_name:
-                        c.setdefault("repository", {})["full_name"] = repo_name
-                    result.append(c)
-                return result
-        except Exception:
-            pass
-        return []
-
-    commits = []
-    seen_shas = set()
-    with ThreadPoolExecutor(max_workers=PR_BRANCH_WORKERS) as pool:
-        for batch in pool.map(_fetch_one, pr_items):
-            for c in batch:
-                sha = c.get("sha")
-                if sha and sha not in seen_shas:
-                    seen_shas.add(sha)
-                    commits.append(c)
-    return commits
-
-
-def fetch_pr_response_times(pr_items, headers, username):
-    """Compute reaction time and time-to-first-comment for a user's PRs.
-
-    For each PR authored by ``username``, fetches reviews and issue comments
-    to find the earliest response from someone other than the author.
-
-    Returns (avg_reaction_hrs, avg_first_comment_hrs) as floats rounded to 1
-    decimal, or None when no data is available.  Reaction time considers both
-    reviews and comments; time-to-first-comment considers only comments.
-    """
-    if not pr_items:
-        return None, None
-
-    uname = username.lower()
-    print(f"  Fetching PR response times ({len(pr_items)} PRs) ...")
-
-    def _parse_iso(ts):
-        if not ts:
-            return None
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-
-    def _fetch_one(item):
-        pr_url = (item.get("pull_request") or {}).get("url")
-        created_str = item.get("created_at")
-        if not pr_url or not created_str:
-            return None, None
-        created = _parse_iso(created_str)
-        if created is None:
-            return None, None
-
-        first_review_dt = None
-        first_comment_dt = None
-
-        try:
-            resp = requests.get(
-                f"{pr_url}/reviews",
-                headers=headers,
-                params={"per_page": 100},
-                timeout=30,
-            )
-            if resp.status_code == 200:
-                for rv in resp.json():
-                    reviewer = (rv.get("user") or {}).get("login", "").lower()
-                    if reviewer == uname:
-                        continue
-                    submitted = _parse_iso(rv.get("submitted_at"))
-                    if submitted and (first_review_dt is None or submitted < first_review_dt):
-                        first_review_dt = submitted
-                        break
-        except Exception:
-            pass
-
-        issue_url = pr_url.replace("/pulls/", "/issues/")
-        try:
-            resp = requests.get(
-                f"{issue_url}/comments",
-                headers=headers,
-                params={"per_page": 100},
-                timeout=30,
-            )
-            if resp.status_code == 200:
-                for cm in resp.json():
-                    commenter = (cm.get("user") or {}).get("login", "").lower()
-                    if commenter == uname:
-                        continue
-                    commented = _parse_iso(cm.get("created_at"))
-                    if commented and (first_comment_dt is None or commented < first_comment_dt):
-                        first_comment_dt = commented
-                        break
-        except Exception:
-            pass
-
-        reaction_dt = None
-        for dt in (first_review_dt, first_comment_dt):
-            if dt and (reaction_dt is None or dt < reaction_dt):
-                reaction_dt = dt
-
-        reaction_hrs = (reaction_dt - created).total_seconds() / 3600 if reaction_dt else None
-        comment_hrs = (first_comment_dt - created).total_seconds() / 3600 if first_comment_dt else None
-        return reaction_hrs, comment_hrs
-
-    reaction_hours = []
-    comment_hours = []
-    with ThreadPoolExecutor(max_workers=PR_BRANCH_WORKERS) as pool:
-        for r_hrs, c_hrs in pool.map(_fetch_one, pr_items):
-            if r_hrs is not None:
-                reaction_hours.append(r_hrs)
-            if c_hrs is not None:
-                comment_hours.append(c_hrs)
-
-    avg_reaction = round(sum(reaction_hours) / len(reaction_hours), 1) if reaction_hours else None
-    avg_comment = round(sum(comment_hours) / len(comment_hours), 1) if comment_hours else None
-    return avg_reaction, avg_comment
-
-
-def fetch_line_stats_sample(commit_items, headers):
-    """Hit the Commits API for a small sample to get additions / deletions.
-
-    Returns (total_additions, total_deletions, sample_size).
-    """
-    additions = deletions = sampled = 0
-    for item in commit_items[:LINE_STATS_SAMPLE_SIZE]:
-        repo = (item.get("repository") or {}).get("full_name")
-        sha = item.get("sha")
-        if not repo or not sha:
-            continue
-        try:
-            resp = requests.get(
-                f"{GITHUB_API}/repos/{repo}/commits/{sha}",
-                headers=headers,
-                timeout=30,
-            )
-            if resp.status_code == 200:
-                stats = resp.json().get("stats", {})
-                additions += stats.get("additions", 0)
-                deletions += stats.get("deletions", 0)
-                sampled += 1
-            time.sleep(COMMIT_API_DELAY_SECONDS)
-        except Exception:
-            continue
-    return additions, deletions, sampled
-
-
-# ---------------------------------------------------------------------------
-# Utilities
-# ---------------------------------------------------------------------------
-
-def count_working_days(start_date, end_date):
-    """Count weekdays (Mon-Fri) between two dates, inclusive."""
-    days = 0
-    current = start_date
-    while current <= end_date:
-        if current.weekday() < 5:
-            days += 1
-        current += timedelta(days=1)
-    return days
-
-
-# ---------------------------------------------------------------------------
-# Excel + console output helpers
-# ---------------------------------------------------------------------------
-
-_HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
-_HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-_ALT_ROW_FILL = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
-_THIN_BORDER = Border(
-    bottom=Side(style="thin", color="B4C6E7"),
-)
-
-_COLUMNS = [
-    ("Username",                  "username",                  16),
-    ("Total PRs",                 "total_prs",                 10),
-    ("PRs / Working Day",         "prs_per_working_day",       16),
-    ("Merged PRs",                "merged_prs",                11),
-    ("Merge Rate %",              "merge_rate_pct",            12),
-    ("Avg Merge Time (hrs)",      "avg_merge_time_hrs",        20),
-    ("Total Commits",             "total_commits",             13),
-    ("Commits / Day",             "commits_per_coding_day",    14),
-    ("Coding Days / Week",        "avg_coding_days_per_week",  18),
-    ("Weekend Commits",           "weekend_commits",           16),
-    ("Active Repos",              "active_repos",              12),
-    ("Reaction Time (hrs)",       "avg_reaction_time_hrs",     18),
-    ("Time to 1st Comment (hrs)", "avg_first_comment_hrs",     22),
-    ("Reviews Given",             "reviews_given",             14),
-    ("PRs Commented On",          "prs_commented_on",          17),
-]
-
-
-_TEAM_AVG_KEYS = [
-    "prs_per_working_day",
-    "merge_rate_pct",
-    "avg_merge_time_hrs",
-    "commits_per_coding_day",
-    "avg_coding_days_per_week",
-    "weekend_commits",
-    "avg_reaction_time_hrs",
-    "avg_first_comment_hrs",
-    "reviews_given",
-    "prs_commented_on",
-]
-
-
-def _compute_team_averages(rows):
-    """Return a dict with team-average values for the keys in _TEAM_AVG_KEYS.
-
-    Keys not in _TEAM_AVG_KEYS are left blank. None values are excluded from
-    the average (so a user with None merge time doesn't drag it down).
-    """
-    if not rows:
-        return {}
-    avgs = {"username": "TEAM AVERAGE"}
-    for key in _TEAM_AVG_KEYS:
-        vals = [r[key] for r in rows if r.get(key) is not None]
-        if vals:
-            avgs[key] = round(sum(vals) / len(vals), 1)
-        else:
-            avgs[key] = None
-    for _, key, _ in _COLUMNS:
-        if key not in avgs:
-            avgs[key] = ""
-    return avgs
-
-
-_TEAM_AVG_FONT = Font(bold=True, color="FFFFFF", size=11)
-_TEAM_AVG_FILL = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
-
-
-def _write_stats_sheet(ws, rows, team_avg=None):
-    """Write a formatted stats table into an openpyxl worksheet."""
-    for col_idx, (title, _, width) in enumerate(_COLUMNS, 1):
-        cell = ws.cell(row=1, column=col_idx, value=title)
-        cell.font = _HEADER_FONT
-        cell.fill = _HEADER_FILL
-        cell.alignment = Alignment(horizontal="center", wrap_text=True)
-        ws.column_dimensions[get_column_letter(col_idx)].width = width
-
-    for row_idx, r in enumerate(rows, 2):
-        for col_idx, (_, key, _) in enumerate(_COLUMNS, 1):
-            val = r.get(key)
-            if val is None:
-                val = ""
-            ws.cell(row=row_idx, column=col_idx, value=val)
-
-        if row_idx % 2 == 0:
-            for col_idx in range(1, len(_COLUMNS) + 1):
-                ws.cell(row=row_idx, column=col_idx).fill = _ALT_ROW_FILL
-
-        for col_idx in range(1, len(_COLUMNS) + 1):
-            ws.cell(row=row_idx, column=col_idx).border = _THIN_BORDER
-
-    if team_avg:
-        avg_row = len(rows) + 3
-        for col_idx, (_, key, _) in enumerate(_COLUMNS, 1):
-            val = team_avg.get(key)
-            if val is None:
-                val = ""
-            cell = ws.cell(row=avg_row, column=col_idx, value=val)
-            cell.font = _TEAM_AVG_FONT
-            cell.fill = _TEAM_AVG_FILL
-            cell.border = _THIN_BORDER
-            cell.alignment = Alignment(horizontal="center")
-
-    ws.freeze_panes = "B2"
-    ws.auto_filter.ref = ws.dimensions
-
-
-def _fmt_val(val, fmt="", prefix="", suffix="", na="N/A"):
-    """Format a value for console display, handling None gracefully."""
-    if val is None or val == "":
-        return na
-    return f"{prefix}{val:{fmt}}{suffix}"
-
-
-def _print_console_tables(results, team_avg=None):
-    """Print the two summary tables to stdout, with optional team average."""
-    print(f"\n{'─' * 110}")
-    print("ACTIVITY")
-    hdr1 = (f"{'Username':<20} {'PRs':>6} {'PRs/Day':>8} {'Merged%':>8} "
-            f"{'Commits':>8} {'Cmts/Day':>9} {'Coding Days':>12} "
-            f"{'Wknd Cmts':>10}")
-    print(hdr1)
-    print("─" * len(hdr1))
-
-    def _print_activity_row(r):
-        cd_str = _fmt_val(r.get("avg_coding_days_per_week"))
-        prs = _fmt_val(r.get("total_prs"), na="")
-        cmts = _fmt_val(r.get("total_commits"), na="")
-        wknd = _fmt_val(r.get("weekend_commits"), na="")
-        print(f"{r['username']:<20} "
-              f"{prs:>6} "
-              f"{_fmt_val(r.get('prs_per_working_day')):>8} "
-              f"{_fmt_val(r.get('merge_rate_pct'), suffix='%'):>8} "
-              f"{cmts:>8} "
-              f"{_fmt_val(r.get('commits_per_coding_day')):>9} "
-              f"{cd_str:>12} "
-              f"{wknd:>10}")
-
-    for r in results:
-        _print_activity_row(r)
-    if team_avg:
-        print("─" * len(hdr1))
-        _print_activity_row(team_avg)
-
-    print(f"\n{'─' * 120}")
-    print("COLLABORATION & QUALITY")
-    hdr2 = (f"{'Username':<20} {'Reviews':>8} {'Commented':>10} "
-            f"{'Reaction':>9} {'1st Cmt':>8} "
-            f"{'Merge Time':>11} {'Repos':>6}")
-    print(hdr2)
-    print("─" * len(hdr2))
-
-    def _print_collab_row(r):
-        m = r.get("avg_merge_time_hrs")
-        merge_str = f"{m}h" if m is not None else "N/A"
-        react_str = _fmt_val(r.get("avg_reaction_time_hrs"), suffix="h")
-        cmt_str = _fmt_val(r.get("avg_first_comment_hrs"), suffix="h")
-        reviews = _fmt_val(r.get("reviews_given"), na="")
-        commented = _fmt_val(r.get("prs_commented_on"), na="")
-        repos = _fmt_val(r.get("active_repos"), na="")
-        print(f"{r['username']:<20} "
-              f"{reviews:>8} "
-              f"{commented:>10} "
-              f"{react_str:>9} "
-              f"{cmt_str:>8} "
-              f"{merge_str:>11} "
-              f"{repos:>6}")
-
-    for r in results:
-        _print_collab_row(r)
-    if team_avg:
-        print("─" * len(hdr2))
-        _print_collab_row(team_avg)
-
-
-# ---------------------------------------------------------------------------
-# Main
+# CLI helpers
 # ---------------------------------------------------------------------------
 
 def get_lookback_days():
@@ -882,6 +232,10 @@ def choose_team(teams):
             print("  Please enter a valid number.")
 
 
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 def main():
     token = get_token()
     org = load_org()
@@ -905,7 +259,7 @@ def main():
     scope_label = "All teams" if len(run_teams) > 1 else list(run_teams.keys())[0]
     search_calls_per_user = 8
     avg_prs_per_user = 100
-    pr_calls_per_pr = 3  # branch commits + reviews + comments
+    pr_calls_per_pr = 3
     pr_fetch_seconds = avg_prs_per_user * pr_calls_per_pr / PR_BRANCH_WORKERS
     est_min = round(
         (total * search_calls_per_user * SEARCH_API_DELAY_SECONDS
@@ -927,29 +281,29 @@ def main():
 
         print("  Fetching search data ...", end="", flush=True)
         pr_count = get_pr_count(username, since_date, headers, org)
-        _delay()
+        delay()
 
         merged_count, merged_items = get_merged_prs(username, since_date, headers, org)
-        _delay()
+        delay()
 
         _, unmerged_items = get_unmerged_prs(username, since_date, headers, org)
-        _delay()
+        delay()
 
         commit_count, commit_items = get_commits_with_items(username, since_date, headers, org)
-        _delay()
+        delay()
 
         reviews_given = get_reviews_given(username, since_date, headers, org)
-        _delay()
+        delay()
 
         prs_commented = get_prs_commented_on(username, since_date, headers, org)
-        _delay()
+        delay()
 
         _, old_merged_items = get_old_merged_prs(username, since_date, headers, org)
-        _delay()
+        delay()
 
         _, old_open_items = get_old_open_prs(username, since_date, headers, org)
         if i < total:
-            _delay()
+            delay()
         print(f" done ({pr_count} PRs, {commit_count} commits, "
               f"+{len(old_open_items)} old open, +{len(old_merged_items)} old merged)")
 
@@ -982,7 +336,7 @@ def main():
             if not date_str:
                 all_commit_items.append(item)
                 continue
-            dt = _parse_iso(date_str).astimezone(MYT).date()
+            dt = parse_iso(date_str).astimezone(MYT).date()
             if since.date() <= dt <= now.date():
                 all_commit_items.append(item)
         total_commit_count = len(all_commit_items)
@@ -1059,8 +413,8 @@ def main():
     for idx, (sheet_name, sheet_results) in enumerate(sheet_sets):
         ws = wb.active if idx == 0 else wb.create_sheet()
         ws.title = sheet_name[:31]
-        team_avg = _compute_team_averages(sheet_results) if len(sheet_results) > 1 else None
-        _write_stats_sheet(ws, sheet_results, team_avg=team_avg)
+        team_avg = compute_team_averages(sheet_results) if len(sheet_results) > 1 else None
+        write_stats_sheet(ws, sheet_results, team_avg=team_avg)
 
     wb.save(output_file)
 
@@ -1069,8 +423,8 @@ def main():
     print(f"Excel exported → {output_file}  (sheets: {sheets_desc})")
 
     # ── Console tables ──────────────────────────────────────────────────────
-    overall_avg = _compute_team_averages(results) if len(results) > 1 else None
-    _print_console_tables(results, team_avg=overall_avg)
+    overall_avg = compute_team_averages(results) if len(results) > 1 else None
+    print_console_tables(results, team_avg=overall_avg)
 
 
 if __name__ == "__main__":
