@@ -77,13 +77,13 @@ It then fetches data from GitHub and prints results to the terminal. When finish
 
 ```
 ACTIVITY
-Username                PRs  PRs/Day  Merged%  Commits  Cmts/Day  Coding Days  Wknd Cmts
-────────────────────────────────────────────────────────────────────────────────────────
-alice                    24     1.04    79.2%      144       8.0          4.1          0
-bob                      25     1.09    92.0%      100       5.0          4.5          0
-carol                    14     0.61    92.9%       85       6.5          2.9          0
-────────────────────────────────────────────────────────────────────────────────────────
-TEAM AVERAGE                     0.9    88.0%                6.5          3.8          0
+Username                PRs  PRs/Day  Merged%  Commits  Commits/Day  Coding Days  Wknd Commits
+──────────────────────────────────────────────────────────────────────────────────────────────
+alice                    24     1.04    79.2%      122          6.8          4.1             0
+bob                      25     1.09    92.0%      100          5.0          4.5             0
+carol                    14     0.61    92.9%       69          5.3          2.9             0
+──────────────────────────────────────────────────────────────────────────────────────────────
+TEAM AVERAGE                     0.9    88.0%                   5.7          3.8             0
 
 COLLABORATION & QUALITY
 Username              Reviews  Commented  Reaction  1st Cmt  Merge Time  Repos
@@ -132,7 +132,7 @@ Each `[TeamName]` header starts a group. The tool lets you run reports per team 
 
 ## Metrics Reference
 
-All times are in **MYT (UTC+8)**. Commit metrics use **author date** (when code was written, not when it was rebased/pushed).
+All times are in **MYT (UTC+8)**. The lookback window ends at **yesterday** (today is never included, matching Flow's convention). Commit metrics use **author date** (when code was written, not when it was rebased/pushed) and exclude merge commits.
 
 ### Activity
 
