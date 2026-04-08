@@ -14,15 +14,21 @@ Generates per-engineer PR, commit, and collaboration metrics for a GitHub organi
 ### Quick install (recommended)
 
 ```bash
-curl -O https://raw.githubusercontent.com/KvaddeML919/GitHub-basic-stats-karteek/main/install.sh && bash install.sh
+curl -O https://raw.githubusercontent.com/KvaddeML919/github-analytics-service/main/install.sh && bash install.sh
 ```
 
-The installer clones the repo to `~/github-stats`, installs dependencies, asks for your org name and team usernames, and creates a **"GitHub Stats"** Desktop shortcut.
+The installer will:
+
+1. Clone the repo to `~/github-stats`
+2. Install Python dependencies
+3. Ask for your GitHub org name (saved to `org.txt`)
+4. Walk you through adding teams and usernames (saved to `team.txt`)
+5. Create a **"GitHub Stats"** shortcut on your Desktop — double-click to run
 
 ### Manual install
 
 ```bash
-git clone https://github.com/KvaddeML919/GitHub-basic-stats-karteek.git ~/github-stats
+git clone https://github.com/KvaddeML919/github-analytics-service.git ~/github-stats
 cd ~/github-stats
 pip3 install -r requirements.txt
 ```
