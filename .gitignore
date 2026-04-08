@@ -1,5 +1,19 @@
+# Output files
 *.csv
 *.xlsx
-team.txt
+
+# User config (contains org name and team usernames)
 org.txt
+team.txt
+
+# macOS
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment / secrets
+.env
+.env.*
