@@ -115,6 +115,7 @@ def load_org():
         with open(ORG_FILE) as f:
             org = f.read().strip()
             if org:
+                print(f"Organization: {org}")
                 return org
     org = input("Enter the GitHub organization name: ").strip()
     if not org:
