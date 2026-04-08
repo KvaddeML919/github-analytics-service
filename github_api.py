@@ -4,21 +4,24 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
 GITHUB_API = "https://api.github.com"
 
 SEARCH_API_DELAY_SECONDS = 2.5
-COMMIT_API_DELAY_SECONDS = 1.0
 
 MAX_RATE_LIMIT_WAIT = 120
 
 PR_BRANCH_WORKERS = 8
 
+Headers = Dict[str, str]
+SearchResult = Tuple[int, List[Dict[str, Any]]]
 
-def _handle_rate_limit(resp, attempt, max_attempts):
-    """Handle 403 rate-limit responses. Returns seconds to wait, or 0 to skip."""
+
+def _handle_rate_limit(resp: requests.Response, attempt: int, max_attempts: int) -> int:
+    """Handle 403 rate-limit responses. Sleeps and returns seconds waited."""
     reset_ts = int(resp.headers.get("X-RateLimit-Reset", time.time() + 60))
     wait = max(reset_ts - int(time.time()), 5)
     if wait > MAX_RATE_LIMIT_WAIT:
@@ -28,7 +31,13 @@ def _handle_rate_limit(resp, attempt, max_attempts):
     return wait
 
 
-def _search_request(url, params, headers, accept=None, per_page=1):
+def _search_request(
+    url: str,
+    params: Dict[str, Any],
+    headers: Headers,
+    accept: Optional[str] = None,
+    per_page: int = 1,
+) -> SearchResult:
     """Execute a GitHub search and return (total_count, items)."""
     req_headers = {**headers}
     if accept:
@@ -58,23 +67,22 @@ def _search_request(url, params, headers, accept=None, per_page=1):
     return 0, []
 
 
-def _search_count(endpoint, query, headers, accept=None):
+def _search_count(
+    endpoint: str, query: str, headers: Headers, accept: Optional[str] = None,
+) -> int:
+    """Run a search and return only the total_count."""
     count, _ = _search_request(
         f"{GITHUB_API}{endpoint}", {"q": query}, headers, accept,
     )
     return count
 
 
-def _search_items(endpoint, query, headers, accept=None, per_page=10):
-    return _search_request(
-        f"{GITHUB_API}{endpoint}", {"q": query}, headers, accept, per_page,
-    )
-
-
-def _search_all_items(endpoint, query, headers, accept=None):
+def _search_all_items(
+    endpoint: str, query: str, headers: Headers, accept: Optional[str] = None,
+) -> SearchResult:
     """Paginate through all search results (GitHub caps at 1000)."""
     url = f"{GITHUB_API}{endpoint}"
-    all_items = []
+    all_items: List[Dict[str, Any]] = []
     total_count = 0
     page = 1
     per_page = 100
@@ -120,7 +128,8 @@ def _search_all_items(endpoint, query, headers, accept=None):
     return total_count, all_items
 
 
-def delay():
+def delay() -> None:
+    """Sleep between search API calls to respect rate limits."""
     time.sleep(SEARCH_API_DELAY_SECONDS)
 
 
@@ -128,7 +137,8 @@ def delay():
 # Per-user query functions
 # ---------------------------------------------------------------------------
 
-def get_pr_count(username, since, headers, org):
+def get_pr_count(username: str, since: str, headers: Headers, org: str) -> int:
+    """Count PRs opened by the user in the lookback window."""
     return _search_count(
         "/search/issues",
         f"type:pr author:{username} org:{org} created:>={since}",
@@ -136,7 +146,7 @@ def get_pr_count(username, since, headers, org):
     )
 
 
-def get_merged_prs(username, since, headers, org):
+def get_merged_prs(username: str, since: str, headers: Headers, org: str) -> SearchResult:
     """Return (merged_count, all merged PR items) with pagination."""
     return _search_all_items(
         "/search/issues",
@@ -145,7 +155,7 @@ def get_merged_prs(username, since, headers, org):
     )
 
 
-def get_unmerged_prs(username, since, headers, org):
+def get_unmerged_prs(username: str, since: str, headers: Headers, org: str) -> SearchResult:
     """Return (count, items) for all unmerged PRs (open, draft, and closed-without-merging)."""
     return _search_all_items(
         "/search/issues",
@@ -154,7 +164,7 @@ def get_unmerged_prs(username, since, headers, org):
     )
 
 
-def get_old_merged_prs(username, since, headers, org):
+def get_old_merged_prs(username: str, since: str, headers: Headers, org: str) -> SearchResult:
     """PRs created before the window but merged during it."""
     return _search_all_items(
         "/search/issues",
@@ -163,7 +173,7 @@ def get_old_merged_prs(username, since, headers, org):
     )
 
 
-def get_old_open_prs(username, since, headers, org):
+def get_old_open_prs(username: str, since: str, headers: Headers, org: str) -> SearchResult:
     """PRs created before the window that are still open (may have recent commits)."""
     return _search_all_items(
         "/search/issues",
@@ -172,7 +182,7 @@ def get_old_open_prs(username, since, headers, org):
     )
 
 
-def get_commits_with_items(username, since, headers, org):
+def get_commits_with_items(username: str, since: str, headers: Headers, org: str) -> SearchResult:
     """Return (commit_count, all commit items) with pagination."""
     return _search_all_items(
         "/search/commits",
@@ -182,7 +192,8 @@ def get_commits_with_items(username, since, headers, org):
     )
 
 
-def get_reviews_given(username, since, headers, org):
+def get_reviews_given(username: str, since: str, headers: Headers, org: str) -> int:
+    """Count PRs where the user submitted a review in the lookback window."""
     return _search_count(
         "/search/issues",
         f"type:pr reviewed-by:{username} org:{org} created:>={since}",
@@ -190,8 +201,8 @@ def get_reviews_given(username, since, headers, org):
     )
 
 
-def get_prs_commented_on(username, since, headers, org):
-    """PRs authored by others where this user left comments."""
+def get_prs_commented_on(username: str, since: str, headers: Headers, org: str) -> int:
+    """Count other authors' PRs where this user left comments."""
     return _search_count(
         "/search/issues",
         f"type:pr commenter:{username} -author:{username} org:{org} created:>={since}",
@@ -203,7 +214,9 @@ def get_prs_commented_on(username, since, headers, org):
 # PR-level fetchers (use thread pools)
 # ---------------------------------------------------------------------------
 
-def fetch_pr_branch_commits(pr_items, headers, username):
+def fetch_pr_branch_commits(
+    pr_items: List[Dict[str, Any]], headers: Headers, username: str,
+) -> List[Dict[str, Any]]:
     """Fetch commit objects from PR branches authored by ``username``.
 
     GitHub's commit search only indexes default-branch commits. For
@@ -211,13 +224,7 @@ def fetch_pr_branch_commits(pr_items, headers, username):
     open/draft PR branches are never on the default branch. This
     retrieves them via the PR commits endpoint.
 
-    Uses a thread pool for concurrent fetching (up to PR_BRANCH_WORKERS
-    parallel requests).
-
-    Returns a list of commit dicts (deduplicated by SHA). Each dict is
-    compatible with the search-commits format: it contains at least
-    ``sha``, ``commit.committer.date``, ``parents``, and a synthesised
-    ``repository.full_name`` extracted from the PR URL.
+    Returns a list of commit dicts (deduplicated by SHA).
     """
     total = len(pr_items)
     if not total:
@@ -226,7 +233,7 @@ def fetch_pr_branch_commits(pr_items, headers, username):
 
     uname = username.lower()
 
-    def _fetch_one(item):
+    def _fetch_commits_for_pr(item: Dict[str, Any]) -> List[Dict[str, Any]]:
         pr_url = (item.get("pull_request") or {}).get("url")
         if not pr_url:
             return []
@@ -249,14 +256,14 @@ def fetch_pr_branch_commits(pr_items, headers, username):
                         c.setdefault("repository", {})["full_name"] = repo_name
                     result.append(c)
                 return result
-        except Exception:
-            pass
+        except requests.exceptions.RequestException as exc:
+            print(f"    Warning: failed to fetch commits for PR: {exc}")
         return []
 
-    commits = []
-    seen_shas = set()
+    commits: List[Dict[str, Any]] = []
+    seen_shas: set = set()
     with ThreadPoolExecutor(max_workers=PR_BRANCH_WORKERS) as pool:
-        for batch in pool.map(_fetch_one, pr_items):
+        for batch in pool.map(_fetch_commits_for_pr, pr_items):
             for c in batch:
                 sha = c.get("sha")
                 if sha and sha not in seen_shas:
@@ -265,15 +272,16 @@ def fetch_pr_branch_commits(pr_items, headers, username):
     return commits
 
 
-def fetch_pr_response_times(pr_items, headers, username):
+def fetch_pr_response_times(
+    pr_items: List[Dict[str, Any]], headers: Headers, username: str,
+) -> Tuple[Optional[float], Optional[float]]:
     """Compute reaction time and time-to-first-comment for a user's PRs.
 
     For each PR authored by ``username``, fetches reviews and issue comments
     to find the earliest response from someone other than the author.
 
     Returns (avg_reaction_hrs, avg_first_comment_hrs) as floats rounded to 1
-    decimal, or None when no data is available.  Reaction time considers both
-    reviews and comments; time-to-first-comment considers only comments.
+    decimal, or None when no data is available.
     """
     if not pr_items:
         return None, None
@@ -281,12 +289,14 @@ def fetch_pr_response_times(pr_items, headers, username):
     uname = username.lower()
     print(f"  Fetching PR response times ({len(pr_items)} PRs) ...")
 
-    def _parse_iso(ts):
+    def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
         if not ts:
             return None
         return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
-    def _fetch_one(item):
+    def _fetch_response_for_pr(
+        item: Dict[str, Any],
+    ) -> Tuple[Optional[float], Optional[float]]:
         pr_url = (item.get("pull_request") or {}).get("url")
         created_str = item.get("created_at")
         if not pr_url or not created_str:
@@ -314,8 +324,8 @@ def fetch_pr_response_times(pr_items, headers, username):
                     if submitted and (first_review_dt is None or submitted < first_review_dt):
                         first_review_dt = submitted
                         break
-        except Exception:
-            pass
+        except requests.exceptions.RequestException as exc:
+            print(f"    Warning: failed to fetch reviews: {exc}")
 
         issue_url = pr_url.replace("/pulls/", "/issues/")
         try:
@@ -334,8 +344,8 @@ def fetch_pr_response_times(pr_items, headers, username):
                     if commented and (first_comment_dt is None or commented < first_comment_dt):
                         first_comment_dt = commented
                         break
-        except Exception:
-            pass
+        except requests.exceptions.RequestException as exc:
+            print(f"    Warning: failed to fetch comments: {exc}")
 
         reaction_dt = None
         for dt in (first_review_dt, first_comment_dt):
@@ -346,10 +356,10 @@ def fetch_pr_response_times(pr_items, headers, username):
         comment_hrs = (first_comment_dt - created).total_seconds() / 3600 if first_comment_dt else None
         return reaction_hrs, comment_hrs
 
-    reaction_hours = []
-    comment_hours = []
+    reaction_hours: List[float] = []
+    comment_hours: List[float] = []
     with ThreadPoolExecutor(max_workers=PR_BRANCH_WORKERS) as pool:
-        for r_hrs, c_hrs in pool.map(_fetch_one, pr_items):
+        for r_hrs, c_hrs in pool.map(_fetch_response_for_pr, pr_items):
             if r_hrs is not None:
                 reaction_hours.append(r_hrs)
             if c_hrs is not None:

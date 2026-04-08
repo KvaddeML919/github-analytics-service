@@ -1,5 +1,7 @@
 """Excel and console output formatting."""
 
+from typing import Any, Dict, List, Optional
+
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -44,8 +46,10 @@ TEAM_AVG_KEYS = [
 _TEAM_AVG_FONT = Font(bold=True, color="FFFFFF", size=11)
 _TEAM_AVG_FILL = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
 
+Row = Dict[str, Any]
 
-def compute_team_averages(rows):
+
+def compute_team_averages(rows: List[Row]) -> Dict[str, Any]:
     """Return a dict with team-average values for the keys in TEAM_AVG_KEYS.
 
     Keys not in TEAM_AVG_KEYS are left blank. None values are excluded from
@@ -53,7 +57,7 @@ def compute_team_averages(rows):
     """
     if not rows:
         return {}
-    avgs = {"username": "TEAM AVERAGE"}
+    avgs: Dict[str, Any] = {"username": "TEAM AVERAGE"}
     for key in TEAM_AVG_KEYS:
         vals = [r[key] for r in rows if r.get(key) is not None]
         if vals:
@@ -66,8 +70,13 @@ def compute_team_averages(rows):
     return avgs
 
 
-def write_stats_sheet(ws, rows, team_avg=None):
-    """Write a formatted stats table into an openpyxl worksheet."""
+def write_stats_sheet(ws: Any, rows: List[Row], team_avg: Optional[Row] = None) -> None:
+    """Write a formatted stats table into an openpyxl worksheet.
+
+    ``ws`` is an openpyxl Worksheet. ``rows`` is a list of per-user result
+    dicts whose keys match the COLUMNS definitions. ``team_avg`` is an
+    optional averages row appended below a blank separator line.
+    """
     for col_idx, (title, _, width) in enumerate(COLUMNS, 1):
         cell = ws.cell(row=1, column=col_idx, value=title)
         cell.font = _HEADER_FONT
@@ -89,7 +98,7 @@ def write_stats_sheet(ws, rows, team_avg=None):
         for col_idx in range(1, len(COLUMNS) + 1):
             ws.cell(row=row_idx, column=col_idx).border = _THIN_BORDER
 
-    if team_avg:
+    if team_avg is not None:
         avg_row = len(rows) + 3
         for col_idx, (_, key, _) in enumerate(COLUMNS, 1):
             val = team_avg.get(key)
@@ -105,15 +114,15 @@ def write_stats_sheet(ws, rows, team_avg=None):
     ws.auto_filter.ref = ws.dimensions
 
 
-def _fmt_val(val, fmt="", prefix="", suffix="", na="N/A"):
+def _fmt_val(val: Any, fmt: str = "", prefix: str = "", suffix: str = "", na: str = "N/A") -> str:
     """Format a value for console display, handling None gracefully."""
     if val is None or val == "":
         return na
     return f"{prefix}{val:{fmt}}{suffix}"
 
 
-def print_console_tables(results, team_avg=None):
-    """Print the two summary tables to stdout, with optional team average."""
+def print_console_tables(results: List[Row], team_avg: Optional[Row] = None) -> None:
+    """Print the Activity and Collaboration summary tables to stdout."""
     print(f"\n{'─' * 110}")
     print("ACTIVITY")
     hdr1 = (f"{'Username':<20} {'PRs':>6} {'PRs/Day':>8} {'Merged%':>8} "
@@ -122,12 +131,12 @@ def print_console_tables(results, team_avg=None):
     print(hdr1)
     print("─" * len(hdr1))
 
-    def _print_activity_row(r):
+    def _print_activity_row(r: Row) -> None:
         cd_str = _fmt_val(r.get("avg_coding_days_per_week"))
         prs = _fmt_val(r.get("total_prs"), na="")
         cmts = _fmt_val(r.get("total_commits"), na="")
         wknd = _fmt_val(r.get("weekend_commits"), na="")
-        print(f"{r['username']:<20} "
+        print(f"{r.get('username', ''):<20} "
               f"{prs:>6} "
               f"{_fmt_val(r.get('prs_per_working_day')):>8} "
               f"{_fmt_val(r.get('merge_rate_pct'), suffix='%'):>8} "
@@ -150,15 +159,14 @@ def print_console_tables(results, team_avg=None):
     print(hdr2)
     print("─" * len(hdr2))
 
-    def _print_collab_row(r):
-        m = r.get("avg_merge_time_hrs")
-        merge_str = f"{m}h" if m is not None else "N/A"
+    def _print_collab_row(r: Row) -> None:
+        merge_str = _fmt_val(r.get("avg_merge_time_hrs"), suffix="h")
         react_str = _fmt_val(r.get("avg_reaction_time_hrs"), suffix="h")
         cmt_str = _fmt_val(r.get("avg_first_comment_hrs"), suffix="h")
         reviews = _fmt_val(r.get("reviews_given"), na="")
         commented = _fmt_val(r.get("prs_commented_on"), na="")
         repos = _fmt_val(r.get("active_repos"), na="")
-        print(f"{r['username']:<20} "
+        print(f"{r.get('username', ''):<20} "
               f"{reviews:>8} "
               f"{commented:>10} "
               f"{react_str:>9} "
