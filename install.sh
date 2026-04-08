@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO_URL="https://github.com/KvaddeML919/GitHub-basic-stats-karteek.git"
+REPO_URL="https://github.com/KvaddeML919/github-analytics-service.git"
 INSTALL_DIR="$HOME/github-stats"
 SHORTCUT="$HOME/Desktop/GitHub Stats.command"
 
