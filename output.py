@@ -24,8 +24,6 @@ COLUMNS = [
     ("Coding Days / Week",        "avg_coding_days_per_week",  18),
     ("Weekend Commits",           "weekend_commits",           16),
     ("Active Repos",              "active_repos",              12),
-    ("Reaction Time (hrs)",       "avg_reaction_time_hrs",     18),
-    ("Time to 1st Comment (hrs)", "avg_first_comment_hrs",     22),
     ("Reviews Given",             "reviews_given",             14),
     ("PRs Commented On",          "prs_commented_on",          17),
 ]
@@ -37,8 +35,6 @@ TEAM_AVG_KEYS = [
     "commits_per_coding_day",
     "avg_coding_days_per_week",
     "weekend_commits",
-    "avg_reaction_time_hrs",
-    "avg_first_comment_hrs",
     "reviews_given",
     "prs_commented_on",
 ]
@@ -154,23 +150,18 @@ def print_console_tables(results: List[Row], team_avg: Optional[Row] = None) -> 
     print(f"\n{'─' * 120}")
     print("COLLABORATION & QUALITY")
     hdr2 = (f"{'Username':<20} {'Reviews':>8} {'Commented':>10} "
-            f"{'Reaction':>9} {'1st Cmt':>8} "
             f"{'Merge Time':>11} {'Repos':>6}")
     print(hdr2)
     print("─" * len(hdr2))
 
     def _print_collab_row(r: Row) -> None:
         merge_str = _fmt_val(r.get("avg_merge_time_hrs"), suffix="h")
-        react_str = _fmt_val(r.get("avg_reaction_time_hrs"), suffix="h")
-        cmt_str = _fmt_val(r.get("avg_first_comment_hrs"), suffix="h")
         reviews = _fmt_val(r.get("reviews_given"), na="")
         commented = _fmt_val(r.get("prs_commented_on"), na="")
         repos = _fmt_val(r.get("active_repos"), na="")
         print(f"{r.get('username', ''):<20} "
               f"{reviews:>8} "
               f"{commented:>10} "
-              f"{react_str:>9} "
-              f"{cmt_str:>8} "
               f"{merge_str:>11} "
               f"{repos:>6}")
 

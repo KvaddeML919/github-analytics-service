@@ -8,7 +8,7 @@ A simple command-line tool that pulls **PR, commit, and collaboration metrics** 
 |---|---|---|
 | PRs opened, merge rate | Reviews given | Avg merge time |
 | Commits, coding days/week | PRs commented on | Active repos |
-| Weekend commits | Reaction time to PRs | Time to first comment |
+| Weekend commits | | |
 
 ---
 
@@ -86,11 +86,11 @@ carol                    14     0.61    92.9%       69          5.3          2.9
 TEAM AVERAGE                     0.9    88.0%                   5.7          3.8             0
 
 COLLABORATION & QUALITY
-Username              Reviews  Commented  Reaction  1st Cmt  Merge Time  Repos
-──────────────────────────────────────────────────────────────────────────────
-alice                      19         14      1.2h     1.5h       24.3h      6
-bob                        44         23      0.5h     0.8h       12.1h      3
-carol                      13          4      2.1h     3.0h       18.7h      5
+Username              Reviews  Commented  Merge Time  Repos
+──────────────────────────────────────────────────────────────
+alice                      19         14       24.3h      6
+bob                        44         23       12.1h      3
+carol                      13          4       18.7h      5
 ```
 
 The Excel file contains the same data with styled headers, alternating row colors, and a team average row -- ready to share.
@@ -150,8 +150,6 @@ All times are in **MYT (UTC+8)**. The lookback window ends at **yesterday** (tod
 
 | Metric | What it measures |
 |---|---|
-| **Reaction Time (hrs)** | Hours until first review or comment from a teammate |
-| **Time to 1st Comment (hrs)** | Hours until first comment from a teammate |
 | **Reviews Given** | PRs where the user submitted a review |
 | **PRs Commented On** | Others' PRs where the user left comments |
 
@@ -167,7 +165,6 @@ All times are in **MYT (UTC+8)**. The lookback window ends at **yesterday** (tod
 - **High Coding Days + low Commits/Day** -- steady, spread-out work
 - **Low Coding Days + high Commits/Day** -- bursty, concentrated sessions
 - **High PRs but low Merge Rate** -- possible review bottleneck
-- **High Reaction Time** -- PRs waiting for feedback
 - **High Reviews Given** -- active code reviewer
 
 ---
@@ -184,8 +181,6 @@ All times are in **MYT (UTC+8)**. The lookback window ends at **yesterday** (tod
 | **Weekend Commits** | `count(commits where author date falls on Sat/Sun within window)` |
 | **Avg Merge Time (hrs)** | `mean(merged_at - created_at) for each merged PR` |
 | **Active Repos** | `count(distinct repos with commits in window)` |
-| **Reaction Time (hrs)** | `mean(first_review_or_comment_at - created_at) for each PR` |
-| **Time to 1st Comment (hrs)** | `mean(first_comment_at - created_at) for each PR` |
 | **Reviews Given** | `count(PRs where user submitted a review)` |
 | **PRs Commented On** | `count(others' PRs where user left a comment)` |
 

@@ -25,7 +25,6 @@ from github_api import (
     get_reviews_given,
     get_prs_commented_on,
     fetch_pr_branch_commits,
-    fetch_pr_response_times,
 )
 from metrics import (
     MYT,
@@ -353,10 +352,6 @@ def _collect_user_stats(
     )
     active_repos = count_active_repos(all_commit_items)
 
-    avg_reaction_hrs, avg_first_comment_hrs = fetch_pr_response_times(
-        all_pr_items, headers, username,
-    )
-
     result: Row = {
         "username": username,
         "total_prs": pr_count,
@@ -369,8 +364,6 @@ def _collect_user_stats(
         "avg_coding_days_per_week": avg_coding_days,
         "weekend_commits": wknd_commits,
         "active_repos": active_repos,
-        "avg_reaction_time_hrs": avg_reaction_hrs,
-        "avg_first_comment_hrs": avg_first_comment_hrs,
         "reviews_given": reviews_given,
         "prs_commented_on": prs_commented,
     }
@@ -420,9 +413,7 @@ def _print_user_summary(r: Row) -> None:
     print(f"  Quality:   Merge time: {_v(r['avg_merge_time_hrs'], 'h')} "
           f"| Active repos: {r['active_repos']}")
     print(f"  Collab:    Reviews: {r['reviews_given']} "
-          f"| PRs commented: {r['prs_commented_on']} "
-          f"| Reaction time: {_v(r['avg_reaction_time_hrs'], 'h')} "
-          f"| 1st comment: {_v(r['avg_first_comment_hrs'], 'h')}")
+          f"| PRs commented: {r['prs_commented_on']}")
 
 
 # ---------------------------------------------------------------------------
