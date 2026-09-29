@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 
 $RepoUrl = "https://github.com/KvaddeML919/github-analytics-service.git"
-$InstallDir = Join-Path $env:USERPROFILE "github-stats"
+$InstallDir = Join-Path $env:USERPROFILE "github-analytics-service"
 $Desktop = [Environment]::GetFolderPath("Desktop")
 $Shortcut = Join-Path $Desktop "GitHub Stats.bat"
 
@@ -293,9 +293,9 @@ $pyCmd = if ($py.Args.Count -gt 0) { "$($py.Exe) $($py.Args -join ' ')" } else {
 
 $batContent = @"
 @echo off
-cd /d "%USERPROFILE%\github-stats"
+cd /d "%USERPROFILE%\github-analytics-service"
 if errorlevel 1 (
-    echo Error: %%USERPROFILE%%\github-stats not found. Re-run the installer.
+    echo Error: %%USERPROFILE%%\github-analytics-service not found. Re-run the installer.
     pause
     exit /b 1
 )
@@ -307,7 +307,7 @@ echo.
 $pyCmd -c "import requests, openpyxl" 2>nul
 if errorlevel 1 (
     echo Error: Missing dependencies. Run in PowerShell:
-    echo   cd %%USERPROFILE%%\github-stats
+    echo   cd %%USERPROFILE%%\github-analytics-service
     echo   $pyCmd -m pip install -r requirements.txt
     pause
     exit /b 1

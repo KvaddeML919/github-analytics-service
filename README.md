@@ -22,7 +22,7 @@ Works on **macOS** and **Windows**.
 | **Git** | `xcode-select --install` or [git-scm.com](https://git-scm.com) | [Git for Windows](https://git-scm.com/download/win) |
 | **GitHub token** | Classic PAT with `repo` + `read:org` (see Step 1) | Same |
 
-Install folder (both platforms): **`~/github-stats`** (Mac) or **`%USERPROFILE%\github-stats`** (Windows).
+Install folder (both platforms): **`~/github-analytics-service`** (Mac) or **`%USERPROFILE%\github-analytics-service`** (Windows).
 
 ---
 
@@ -143,9 +143,9 @@ The Excel file contains the same data with styled headers, alternating row color
 For more than one organization, create one profile folder per organization. Profile names are local labels you choose; they do not need to match the organization name. Each profile can also contain `api.txt` when the organization is hosted on GitHub Enterprise:
 
 ```bash
-mkdir -p ~/github-stats/profiles/company-a ~/github-stats/profiles/company-b
-printf 'company-a\n' > ~/github-stats/profiles/company-a/org.txt
-printf 'company-b\n' > ~/github-stats/profiles/company-b/org.txt
+mkdir -p ~/github-analytics-service/profiles/company-a ~/github-analytics-service/profiles/company-b
+printf 'company-a\n' > ~/github-analytics-service/profiles/company-a/org.txt
+printf 'company-b\n' > ~/github-analytics-service/profiles/company-b/org.txt
 ```
 
 GitHub.com profiles use `https://api.github.com` automatically. For a GitHub Enterprise Server organization such as `https://github.example.com/tc`, create `profiles/enterprise-tc/api.txt` with:
@@ -166,7 +166,7 @@ export GITHUB_TOKEN_ENTERPRISE_TC='token-for-enterprise-tc'
 Run with a profile explicitly, or omit `--profile` to choose interactively when multiple profiles exist:
 
 ```bash
-cd ~/github-stats
+cd ~/github-analytics-service
 python3 github_stats.py --profile company-a 90
 python3 github_stats.py --profile company-b 90
 ```
@@ -180,12 +180,12 @@ If the profile token environment variable is not set, the tool prompts for that 
 | Task | macOS | Windows |
 |---|---|---|
 | **Run the tool** | Double-click **GitHub Stats** | Double-click **GitHub Stats.bat** |
-| **Run from terminal** | `cd ~/github-stats && python3 github_stats.py` | `cd %USERPROFILE%\github-stats` then `python github_stats.py` |
+| **Run from terminal** | `cd ~/github-analytics-service && python3 github_stats.py` | `cd %USERPROFILE%\github-analytics-service` then `python github_stats.py` |
 | **Custom lookback** | `python3 github_stats.py 30` | `python github_stats.py 30` |
-| **Edit teams** | Edit `~/github-stats/team.txt` or `profiles/<name>/team.txt` | Edit `%USERPROFILE%\github-stats\team.txt` or `profiles\<name>\team.txt` |
-| **Change org** | Edit `~/github-stats/org.txt` or `profiles/<name>/org.txt` | Edit `%USERPROFILE%\github-stats\org.txt` or `profiles\<name>\org.txt` |
+| **Edit teams** | Edit `~/github-analytics-service/team.txt` or `profiles/<name>/team.txt` | Edit `%USERPROFILE%\github-analytics-service\team.txt` or `profiles\<name>\team.txt` |
+| **Change org** | Edit `~/github-analytics-service/org.txt` or `profiles/<name>/org.txt` | Edit `%USERPROFILE%\github-analytics-service\org.txt` or `profiles\<name>\org.txt` |
 | **Change API host** | Edit `profiles/<name>/api.txt` for GitHub Enterprise | Edit `profiles\<name>\api.txt` for GitHub Enterprise |
-| **Update the tool** | `cd ~/github-stats && git pull` | `cd %USERPROFILE%\github-stats` then `git pull` |
+| **Update the tool** | `cd ~/github-analytics-service && git pull` | `cd %USERPROFILE%\github-analytics-service` then `git pull` |
 
 Your `org.txt`, `team.txt`, `api.txt`, and `profiles/` directory are gitignored, so `git pull` won't overwrite them.
 
@@ -272,7 +272,7 @@ The installer checks **Git**, **Python 3**, and **pip** first, then installs pac
 ### macOS — manual recovery
 
 ```bash
-cd ~/github-stats
+cd ~/github-analytics-service
 python3 -m pip install -r requirements.txt
 python3 -c "import requests, openpyxl; print('OK')"
 python3 github_stats.py
@@ -289,7 +289,7 @@ python3 github_stats.py
 ### Windows — manual recovery
 
 ```powershell
-cd $env:USERPROFILE\github-stats
+cd $env:USERPROFILE\github-analytics-service
 python -m pip install -r requirements.txt
 python -c "import requests, openpyxl; print('OK')"
 python github_stats.py

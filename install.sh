@@ -3,7 +3,7 @@
 set -e
 
 REPO_URL="https://github.com/KvaddeML919/github-analytics-service.git"
-INSTALL_DIR="$HOME/github-stats"
+INSTALL_DIR="$HOME/github-analytics-service"
 SHORTCUT="$HOME/Desktop/GitHub Stats.command"
 
 fail() {
@@ -230,7 +230,7 @@ echo ""
 # --- Create desktop shortcut ---
 cat > "$SHORTCUT" << 'LAUNCHER'
 #!/bin/bash
-cd "$HOME/github-stats" || { echo "Error: $HOME/github-stats not found. Re-run the installer."; read -r -p "Press Enter to close..."; exit 1; }
+cd "$HOME/github-analytics-service" || { echo "Error: $HOME/github-analytics-service not found. Re-run the installer."; read -r -p "Press Enter to close..."; exit 1; }
 echo ""
 echo "========================================="
 echo "  GitHub Team Stats"
@@ -238,7 +238,7 @@ echo "========================================="
 echo ""
 python3 -c "import requests, openpyxl" 2>/dev/null || {
     echo "Error: Missing dependencies. Run in Terminal:"
-    echo "  cd ~/github-stats && python3 -m pip install -r requirements.txt"
+    echo "  cd ~/github-analytics-service && python3 -m pip install -r requirements.txt"
     read -r -p "Press Enter to close..."
     exit 1
 }
