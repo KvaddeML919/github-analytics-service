@@ -25,6 +25,12 @@ CommitItem = Dict[str, Any]
 PullRequestItem = Dict[str, Any]
 
 
+def set_api_base(api_base: str) -> None:
+    """Set the API base used by subsequent requests for the active profile."""
+    global GITHUB_API
+    GITHUB_API = api_base.rstrip("/")
+
+
 def _handle_rate_limit(resp: requests.Response, attempt: int, max_attempts: int) -> int:
     """Handle 403 rate-limit responses. Sleeps and returns seconds waited."""
     reset_ts = int(resp.headers.get("X-RateLimit-Reset", time.time() + 60))

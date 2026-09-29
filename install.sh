@@ -107,6 +107,23 @@ fi
 
 echo ""
 
+# --- Set up api.txt ---
+if [ ! -f "$INSTALL_DIR/api.txt" ]; then
+    read -r -p "GitHub API base URL [https://api.github.com]: " api_url
+    api_url="${api_url:-https://api.github.com}"
+    api_url="${api_url%/}"
+    if [ "$api_url" != "https://api.github.com" ]; then
+        echo "$api_url" > "$INSTALL_DIR/api.txt"
+        echo "Saved API base: $api_url"
+    else
+        echo "Using GitHub.com API."
+    fi
+else
+    echo "api.txt already exists — keeping existing API base: $(cat "$INSTALL_DIR/api.txt")"
+fi
+
+echo ""
+
 # --- Set up team.txt ---
 if [ ! -f "$INSTALL_DIR/team.txt" ]; then
     echo "Setting up teams and members..."
@@ -151,6 +168,62 @@ if [ ! -f "$INSTALL_DIR/team.txt" ]; then
 else
     echo "team.txt already exists — keeping existing team list."
 fi
+
+echo ""
+
+# --- Set up additional organization profiles ---
+while true; do
+    read -r -p "Add another organization profile? [y/N]: " add_profile
+    case "$add_profile" in
+        y|Y|yes|YES) ;;
+        *) break ;;
+    esac
+
+    read -r -p "  Profile name (local label, e.g. enterprise-team): " profile_name
+    if [ -z "$profile_name" ] || [[ "$profile_name" == */* ]] || [[ "$profile_name" == .* ]]; then
+        echo "  Invalid profile name. Use letters, numbers, hyphens, or underscores."
+        continue
+    fi
+
+    profile_dir="$INSTALL_DIR/profiles/$profile_name"
+    if [ -e "$profile_dir" ]; then
+        echo "  Profile already exists: $profile_name"
+        continue
+    fi
+    mkdir -p "$profile_dir"
+
+    read -r -p "  Organization name: " profile_org
+    if [ -z "$profile_org" ]; then
+        rm -rf "$profile_dir"
+        echo "  Organization name is required; profile was not created."
+        continue
+    fi
+    echo "$profile_org" > "$profile_dir/org.txt"
+
+    read -r -p "  GitHub API base URL [https://api.github.com]: " profile_api
+    profile_api="${profile_api:-https://api.github.com}"
+    profile_api="${profile_api%/}"
+    if [ "$profile_api" != "https://api.github.com" ]; then
+        echo "$profile_api" > "$profile_dir/api.txt"
+    fi
+
+    echo "  Setting up teams for $profile_name..."
+    > "$profile_dir/team.txt"
+    while true; do
+        read -r -p "    Team name (empty to finish): " profile_team
+        [ -z "$profile_team" ] && break
+        echo "[$profile_team]" >> "$profile_dir/team.txt"
+        while true; do
+            read -r -p "      Username (empty to finish this team): " profile_user
+            [ -z "$profile_user" ] && break
+            echo "$profile_user" >> "$profile_dir/team.txt"
+        done
+        echo "" >> "$profile_dir/team.txt"
+    done
+    echo "  Created profile: $profile_name"
+    echo "  Token will be requested when this profile is run."
+    echo ""
+done
 
 echo ""
 

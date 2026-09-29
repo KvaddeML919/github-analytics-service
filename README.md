@@ -76,8 +76,11 @@ The installer will ask you a few things:
 | Prompt | What to enter |
 |---|---|
 | **Organization name** | Your GitHub org (e.g. `my-company`) |
+| **GitHub API base URL** | Press Enter for GitHub.com, or enter your Enterprise API URL, such as `https://github.example.com/api/v3` |
 | **Team name** | A label for each team (e.g. `Backend`, `Payments`) |
 | **Usernames** | GitHub usernames of team members, one at a time |
+
+After the first organization and teams are set up, the installer asks whether you want to add another organization profile. For each additional profile, enter a local profile name, organization name, API base URL, and teams. The token is not requested during installation because it is never saved; the desktop shortcut requests the token securely when you run a selected profile.
 
 Press Enter on an empty line to move to the next team or finish.
 
@@ -102,11 +105,14 @@ Double-click the desktop shortcut (**GitHub Stats** on Mac, **GitHub Stats.bat**
 
 The tool will prompt you for:
 
-1. **Your GitHub token** — paste the token from Step 1 (or set `GITHUB_TOKEN` in your environment to skip the prompt)
-2. **Which team** — run for all teams or pick one
-3. **Lookback period** — how many days back (default: 90)
+1. **Which organization profile** — when multiple profiles were installed
+2. **Your GitHub token** — paste the token for the selected server and organization
+3. **Which team** — run for all teams or pick one
+4. **Lookback period** — how many days back (default: 90)
 
 It then fetches data from GitHub and prints results to the terminal. When finished, it also saves an Excel file (`github_stats_YYYYMMDD_HHMMSS.xlsx`) in your install folder.
+
+For a GitHub Enterprise Server installation, enter the server's API base URL when the installer asks. For example, if the organization page is `https://github.example.com/tc`, enter `https://github.example.com/api/v3` and enter `tc` as the organization name. Do not enter the organization web page URL as the API base.
 
 ---
 
@@ -132,6 +138,41 @@ carol                      13          4       18.7h      5
 
 The Excel file contains the same data with styled headers, alternating row colors, and a team average row -- ready to share.
 
+### Multiple Organizations
+
+For more than one organization, create one profile folder per organization. Profile names are local labels you choose; they do not need to match the organization name. Each profile can also contain `api.txt` when the organization is hosted on GitHub Enterprise:
+
+```bash
+mkdir -p ~/github-stats/profiles/company-a ~/github-stats/profiles/company-b
+printf 'company-a\n' > ~/github-stats/profiles/company-a/org.txt
+printf 'company-b\n' > ~/github-stats/profiles/company-b/org.txt
+```
+
+GitHub.com profiles use `https://api.github.com` automatically. For a GitHub Enterprise Server organization such as `https://github.example.com/tc`, create `profiles/enterprise-tc/api.txt` with:
+
+```text
+https://github.example.com/api/v3
+```
+
+The Enterprise profile's `org.txt` should contain `tc`, not the full URL.
+
+Create a separate `team.txt` in each profile using the team format below. Tokens are never saved by the tool. The token variable uses the profile name: replace non-alphanumeric characters with `_`, uppercase it, and add `GITHUB_TOKEN_`. For example, profile `enterprise-tc` uses `GITHUB_TOKEN_ENTERPRISE_TC`:
+
+```bash
+export GITHUB_TOKEN_COMPANY_A='token-for-company-a'
+export GITHUB_TOKEN_ENTERPRISE_TC='token-for-enterprise-tc'
+```
+
+Run with a profile explicitly, or omit `--profile` to choose interactively when multiple profiles exist:
+
+```bash
+cd ~/github-stats
+python3 github_stats.py --profile company-a 90
+python3 github_stats.py --profile company-b 90
+```
+
+If the profile token environment variable is not set, the tool prompts for that profile's token. The original `org.txt`, `team.txt`, and `GITHUB_TOKEN` setup remains supported as the `default` profile.
+
 ---
 
 ## Day-to-Day Usage
@@ -141,11 +182,12 @@ The Excel file contains the same data with styled headers, alternating row color
 | **Run the tool** | Double-click **GitHub Stats** | Double-click **GitHub Stats.bat** |
 | **Run from terminal** | `cd ~/github-stats && python3 github_stats.py` | `cd %USERPROFILE%\github-stats` then `python github_stats.py` |
 | **Custom lookback** | `python3 github_stats.py 30` | `python github_stats.py 30` |
-| **Edit teams** | Edit `~/github-stats/team.txt` | Edit `%USERPROFILE%\github-stats\team.txt` |
-| **Change org** | Edit `~/github-stats/org.txt` | Edit `%USERPROFILE%\github-stats\org.txt` |
+| **Edit teams** | Edit `~/github-stats/team.txt` or `profiles/<name>/team.txt` | Edit `%USERPROFILE%\github-stats\team.txt` or `profiles\<name>\team.txt` |
+| **Change org** | Edit `~/github-stats/org.txt` or `profiles/<name>/org.txt` | Edit `%USERPROFILE%\github-stats\org.txt` or `profiles\<name>\org.txt` |
+| **Change API host** | Edit `profiles/<name>/api.txt` for GitHub Enterprise | Edit `profiles\<name>\api.txt` for GitHub Enterprise |
 | **Update the tool** | `cd ~/github-stats && git pull` | `cd %USERPROFILE%\github-stats` then `git pull` |
 
-Your `org.txt` and `team.txt` are gitignored, so `git pull` won't overwrite them.
+Your `org.txt`, `team.txt`, `api.txt`, and `profiles/` directory are gitignored, so `git pull` won't overwrite them.
 
 ---
 

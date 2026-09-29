@@ -32,6 +32,8 @@ class Config:
     # File Paths
     team_file_name: str = "team.txt"
     org_file_name: str = "org.txt"
+    api_file_name: str = "api.txt"
+    profiles_dir_name: str = "profiles"
 
     # Timezone
     local_timezone: timezone = timezone(timedelta(hours=8))  # MYT

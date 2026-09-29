@@ -7,6 +7,7 @@ import sys
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple
+from urllib.parse import urlsplit
 
 import requests
 from openpyxl import Workbook
@@ -29,6 +30,7 @@ from github_api import (
     get_reviews_given,
     get_prs_commented_on,
     fetch_pr_branch_commits,
+    set_api_base,
 )
 from metrics import (
     MYT,
@@ -49,6 +51,8 @@ from logger import info, warning, error
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEAM_FILE = os.path.join(SCRIPT_DIR, config.team_file_name)
 ORG_FILE = os.path.join(SCRIPT_DIR, config.org_file_name)
+API_FILE = os.path.join(SCRIPT_DIR, config.api_file_name)
+PROFILES_DIR = os.path.join(SCRIPT_DIR, config.profiles_dir_name)
 
 # Type aliases for better type safety
 Headers = Dict[str, str]
@@ -62,21 +66,29 @@ CommitItem = Dict[str, Any]
 # Setup helpers (token, org, team)
 # ---------------------------------------------------------------------------
 
-def get_token() -> str:
-    """Read token from GITHUB_TOKEN env var, or prompt interactively."""
-    token = os.environ.get("GITHUB_TOKEN")
+def _token_env_name(profile_name: str) -> str:
+    """Return the environment variable name for a profile token."""
+    normalized = re.sub(r"[^A-Za-z0-9]", "_", profile_name).upper()
+    return f"GITHUB_TOKEN_{normalized}"
+
+
+def get_token(profile_name: str, use_legacy_token: bool) -> str:
+    """Read a profile token from the environment, or prompt interactively."""
+    token = os.environ.get(_token_env_name(profile_name))
+    if not token and use_legacy_token:
+        token = os.environ.get("GITHUB_TOKEN")
     if not token:
-        info("No GITHUB_TOKEN environment variable found.")
+        info(f"No token environment variable found for profile '{profile_name}'.")
         info("Create a Classic token at https://github.com/settings/tokens")
         info("Required scopes: repo, read:org  (+ SSO authorize for your org)\n")
-        token = input("Paste your GitHub token: ").strip()
+        token = input(f"Paste the GitHub token for '{profile_name}': ").strip()
         if not token:
             error("Error: No token provided.")
             sys.exit(1)
     return token
 
 
-def validate_token(token: str, org: str) -> None:
+def validate_token(token: str, org: str, api_base: str) -> None:
     """Check token validity, required scopes, and org access. Exits on failure."""
     if not token or not token.strip():
         error("Error: GitHub token is empty or invalid.")
@@ -89,7 +101,7 @@ def validate_token(token: str, org: str) -> None:
     headers = {"Authorization": f"token {token}"}
 
     try:
-        resp = requests.get(f"{GITHUB_API}/user", headers=headers, timeout=config.request_timeout_seconds)
+        resp = requests.get(f"{api_base}/user", headers=headers, timeout=config.request_timeout_seconds)
     except requests.exceptions.RequestException as exc:
         error(f"Error: Failed to connect to GitHub API: {exc}")
         sys.exit(1)
@@ -121,7 +133,7 @@ def validate_token(token: str, org: str) -> None:
 
     try:
         org_resp = requests.get(
-            f"{GITHUB_API}/orgs/{org}/repos",
+            f"{api_base}/orgs/{org}/repos",
             headers={**headers, "Accept": "application/vnd.github.v3+json"},
             params={"per_page": 1},
             timeout=config.request_timeout_seconds,
@@ -150,10 +162,10 @@ def validate_token(token: str, org: str) -> None:
         sys.exit(1)
 
 
-def load_org() -> str:
+def load_org(org_file: str) -> str:
     """Load org name from org.txt, or prompt and save it."""
-    if os.path.exists(ORG_FILE):
-        with open(ORG_FILE) as fh:
+    if os.path.exists(org_file):
+        with open(org_file) as fh:
             org = fh.read().strip()
             if org:
                 info(f"Organization: {org}")
@@ -162,13 +174,14 @@ def load_org() -> str:
     if not org:
         error("Error: No organization name provided.")
         sys.exit(1)
-    with open(ORG_FILE, "w") as fh:
+    os.makedirs(os.path.dirname(org_file), exist_ok=True)
+    with open(org_file, "w") as fh:
         fh.write(org + "\n")
-    info(f"Saved org '{org}' to {ORG_FILE}")
+    info(f"Saved org '{org}' to {org_file}")
     return org
 
 
-def _create_team_interactive() -> Tuple[List[str], Teams]:
+def _create_team_interactive(team_file: str) -> Tuple[List[str], Teams]:
     """Walk the user through creating teams and members interactively."""
     info("No team file found. Let's set up your teams now.\n")
     info("You'll enter team names first, then GitHub usernames for each team.")
@@ -198,33 +211,33 @@ def _create_team_interactive() -> Tuple[List[str], Teams]:
         error("Error: No team members added.")
         sys.exit(1)
 
-    with open(TEAM_FILE, "w") as fh:
+    with open(team_file, "w") as fh:
         for tname, members in teams.items():
             fh.write(f"[{tname}]\n")
             for m in members:
                 fh.write(f"{m}\n")
             fh.write("\n")
 
-    info(f"Saved {total_members} member(s) across {len(teams)} team(s) to {TEAM_FILE}\n")
+    info(f"Saved {total_members} member(s) across {len(teams)} team(s) to {team_file}\n")
 
     all_members = [u for members in teams.values() for u in members]
     return all_members, teams
 
 
-def load_team_members() -> Tuple[List[str], Teams]:
+def load_team_members(team_file: str) -> Tuple[List[str], Teams]:
     """Parse team.txt or create it interactively if missing.
 
     Grouped format uses [TeamName] headers. Returns (all_members, teams_dict)
     where teams_dict is an OrderedDict of team_name -> [usernames].
     """
-    if not os.path.exists(TEAM_FILE):
-        return _create_team_interactive()
+    if not os.path.exists(team_file):
+        return _create_team_interactive(team_file)
 
     teams: Teams = OrderedDict()
     current_team = None
     header_re = re.compile(r"^\[(.+)\]\s*$")
 
-    with open(TEAM_FILE) as fh:
+    with open(team_file) as fh:
         for line in fh:
             line = line.strip()
             if not line:
@@ -253,9 +266,14 @@ def load_team_members() -> Tuple[List[str], Teams]:
 
 def get_lookback_days() -> int:
     """Get lookback days from CLI arg or interactive prompt."""
-    if len(sys.argv) > 1:
+    args = list(sys.argv[1:])
+    if "--profile" in args:
+        profile_index = args.index("--profile")
+        del args[profile_index:profile_index + 2]
+
+    if args:
         try:
-            days = int(sys.argv[1])
+            days = int(args[0])
             if days > 0:
                 return days
         except ValueError:
@@ -272,6 +290,90 @@ def get_lookback_days() -> int:
             info("  Please enter a positive number.")
         except ValueError:
             info("  Please enter a valid number.")
+
+
+def _profile_paths(profile_name: str) -> Tuple[str, str, str]:
+    """Return the org, team, and API files for a named profile."""
+    profile_dir = os.path.join(PROFILES_DIR, profile_name)
+    return (
+        os.path.join(profile_dir, config.org_file_name),
+        os.path.join(profile_dir, config.team_file_name),
+        os.path.join(profile_dir, config.api_file_name),
+    )
+
+
+def choose_profile() -> Tuple[str, str, str, str, bool]:
+    """Choose a profile, falling back to the legacy single-org files."""
+    profile_arg = None
+    for index, arg in enumerate(sys.argv):
+        if arg == "--profile" and index + 1 < len(sys.argv):
+            profile_arg = sys.argv[index + 1]
+            break
+
+    profile_names = sorted(
+        name for name in os.listdir(PROFILES_DIR)
+        if os.path.isdir(os.path.join(PROFILES_DIR, name))
+        and not name.startswith(".")
+    ) if os.path.isdir(PROFILES_DIR) else []
+
+    if (os.path.exists(ORG_FILE) or os.path.exists(TEAM_FILE)) and "default" not in profile_names:
+        profile_names.insert(0, "default")
+
+    if not profile_names:
+        return "default", ORG_FILE, TEAM_FILE, API_FILE, True
+
+    if profile_arg:
+        if profile_arg not in profile_names:
+            error(f"Error: Profile '{profile_arg}' was not found in {PROFILES_DIR}.")
+            sys.exit(1)
+        selected = profile_arg
+    elif len(profile_names) == 1:
+        selected = profile_names[0]
+    else:
+        info("\nProfiles found:")
+        for index, name in enumerate(profile_names, 1):
+            info(f"  {index}. {name}")
+        while True:
+            raw = input("\nRun report for which profile? [1]: ").strip() or "1"
+            try:
+                choice = int(raw)
+                if 1 <= choice <= len(profile_names):
+                    selected = profile_names[choice - 1]
+                    break
+            except ValueError:
+                pass
+            info(f"  Please enter a number between 1 and {len(profile_names)}.")
+
+    if selected == "default":
+        return selected, ORG_FILE, TEAM_FILE, API_FILE, True
+
+    org_file, team_file, api_file = _profile_paths(selected)
+    return selected, org_file, team_file, api_file, False
+
+
+def load_api_base(api_file: str) -> str:
+    """Load a profile API base, defaulting to GitHub.com."""
+    if not api_file:
+        return GITHUB_API
+    if not os.path.exists(api_file):
+        return GITHUB_API
+    with open(api_file) as fh:
+        api_base = fh.read().strip().rstrip("/")
+    if not api_base:
+        return GITHUB_API
+
+    parsed = urlsplit(api_base)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        error("Error: API base URL must be an HTTPS URL without credentials, query parameters, or fragments.")
+        sys.exit(1)
+    return api_base
 
 
 def choose_team(teams: Teams) -> Tuple[List[str], Teams]:
@@ -537,10 +639,11 @@ def _print_user_summary(r: UserRow) -> None:
 # ---------------------------------------------------------------------------
 
 def _export_excel(
-    results: List[UserRow], run_teams: Teams,
+    results: List[UserRow], run_teams: Teams, profile_name: str,
 ) -> str:
     """Write results to a timestamped Excel file and return the filename."""
-    output_file = f"github_stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    safe_profile = re.sub(r"[^A-Za-z0-9_.-]", "_", profile_name)
+    output_file = f"github_stats_{safe_profile}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     wb = Workbook()
 
     results_by_user = {r["username"]: r for r in results}
@@ -573,10 +676,13 @@ def _export_excel(
 
 def main() -> None:
     """Entry point: setup, collect stats per user, export, and display."""
-    token = get_token()
-    org = load_org()
-    validate_token(token, org)
-    _, teams = load_team_members()
+    profile_name, org_file, team_file, api_file, use_legacy_token = choose_profile()
+    token = get_token(profile_name, use_legacy_token)
+    org = load_org(org_file)
+    api_base = load_api_base(api_file)
+    set_api_base(api_base)
+    validate_token(token, org, api_base)
+    _, teams = load_team_members(team_file)
     team_members, run_teams = choose_team(teams)
     lookback_days = get_lookback_days()
 
@@ -600,7 +706,7 @@ def main() -> None:
         1,
     )
 
-    info(f"\nGitHub Stats for {total} team members  ({scope_label})")
+    info(f"\nGitHub Stats for {total} team members  ({scope_label}, profile: {profile_name})")
     info(f"Org:            {org}")
     info(f"Period:         {since_date} → {end_date}  "
           f"({lookback_days} calendar days, {working_days} working days)")
@@ -616,7 +722,7 @@ def main() -> None:
 
     results.sort(key=lambda r: r["total_commits"], reverse=True)
 
-    _export_excel(results, run_teams)
+    _export_excel(results, run_teams, profile_name)
 
     overall_avg = compute_team_averages(results) if len(results) > 1 else None
     print_console_tables(results, team_avg=overall_avg)

@@ -5,6 +5,8 @@
 # User config (contains org name and team usernames)
 org.txt
 team.txt
+api.txt
+profiles/
 
 # macOS
 .DS_Store

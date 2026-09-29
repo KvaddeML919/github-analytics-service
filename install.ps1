@@ -171,6 +171,25 @@ if (-not (Test-Path $OrgFile)) {
 
 Write-Host ""
 
+# --- api.txt ---
+$ApiFile = Join-Path $InstallDir "api.txt"
+if (-not (Test-Path $ApiFile)) {
+    $apiUrl = Read-Host "GitHub API base URL [https://api.github.com]"
+    if ([string]::IsNullOrWhiteSpace($apiUrl)) { $apiUrl = "https://api.github.com" }
+    $apiUrl = $apiUrl.Trim().TrimEnd('/')
+    if ($apiUrl -ne "https://api.github.com") {
+        Set-Content -Path $ApiFile -Value $apiUrl
+        Write-Host "Saved API base: $apiUrl"
+    } else {
+        Write-Host "Using GitHub.com API."
+    }
+} else {
+    $existingApi = Get-Content $ApiFile -Raw
+    Write-Host "api.txt already exists — keeping existing API base: $($existingApi.Trim())"
+}
+
+Write-Host ""
+
 # --- team.txt ---
 $TeamFile = Join-Path $InstallDir "team.txt"
 if (-not (Test-Path $TeamFile)) {
@@ -210,6 +229,60 @@ if (-not (Test-Path $TeamFile)) {
     }
 } else {
     Write-Host "team.txt already exists — keeping existing team list."
+}
+
+Write-Host ""
+
+# --- Additional organization profiles ---
+while ($true) {
+    $addProfile = Read-Host "Add another organization profile? [y/N]"
+    if ($addProfile -notmatch '^(?i:y|yes)$') { break }
+
+    $profileName = Read-Host "  Profile name (local label, e.g. enterprise-team)"
+    if ([string]::IsNullOrWhiteSpace($profileName) -or $profileName -match '[\\/]' -or $profileName.StartsWith('.')) {
+        Write-Host "  Invalid profile name. Use letters, numbers, hyphens, or underscores."
+        continue
+    }
+
+    $profileDir = Join-Path (Join-Path $InstallDir "profiles") $profileName
+    if (Test-Path $profileDir) {
+        Write-Host "  Profile already exists: $profileName"
+        continue
+    }
+    New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
+
+    $profileOrg = Read-Host "  Organization name"
+    if ([string]::IsNullOrWhiteSpace($profileOrg)) {
+        Remove-Item -Recurse -Force $profileDir
+        Write-Host "  Organization name is required; profile was not created."
+        continue
+    }
+    Set-Content -Path (Join-Path $profileDir "org.txt") -Value $profileOrg.Trim()
+
+    $profileApi = Read-Host "  GitHub API base URL [https://api.github.com]"
+    if ([string]::IsNullOrWhiteSpace($profileApi)) { $profileApi = "https://api.github.com" }
+    $profileApi = $profileApi.Trim().TrimEnd('/')
+    if ($profileApi -ne "https://api.github.com") {
+        Set-Content -Path (Join-Path $profileDir "api.txt") -Value $profileApi
+    }
+
+    $profileTeamFile = Join-Path $profileDir "team.txt"
+    Write-Host "  Setting up teams for $profileName..."
+    Set-Content -Path $profileTeamFile -Value ""
+    while ($true) {
+        $profileTeam = Read-Host "    Team name (empty to finish)"
+        if ([string]::IsNullOrWhiteSpace($profileTeam)) { break }
+        Add-Content -Path $profileTeamFile -Value "[$profileTeam]"
+        while ($true) {
+            $profileUser = Read-Host "      Username (empty to finish this team)"
+            if ([string]::IsNullOrWhiteSpace($profileUser)) { break }
+            Add-Content -Path $profileTeamFile -Value $profileUser.Trim()
+        }
+        Add-Content -Path $profileTeamFile -Value ""
+    }
+    Write-Host "  Created profile: $profileName"
+    Write-Host "  Token will be requested when this profile is run."
+    Write-Host ""
 }
 
 Write-Host ""
