@@ -1,16 +1,8 @@
 # GitHub Team Stats
 
-A simple command-line tool that pulls **PR, commit, and collaboration metrics** for your engineering team from GitHub. Run it, pick a team, and get a summary table + Excel report in minutes.
+A command-line tool that collects GitHub pull request, commit, review, and repository metrics for configured team members. It prints a summary and exports an Excel workbook.
 
 Works on **macOS** and **Windows**.
-
-**What you get per engineer:**
-
-| Activity | Collaboration | Quality |
-|---|---|---|
-| PRs opened, merge rate | Reviews given | Avg merge time |
-| Commits, coding days/week | PRs commented on | Active repos |
-| Weekend commits | | |
 
 ---
 
@@ -116,31 +108,9 @@ For a GitHub Enterprise Server installation, enter the server's API base URL whe
 
 ---
 
-## Sample Output
-
-```
-ACTIVITY
-Username                PRs  PRs/Day  Merged%  Commits  Commits/Day  Coding Days  Wknd Commits
-──────────────────────────────────────────────────────────────────────────────────────────────
-alice                    24     1.04    79.2%      122          6.8          4.1             0
-bob                      25     1.09    92.0%      100          5.0          4.5             0
-carol                    14     0.61    92.9%       69          5.3          2.9             0
-──────────────────────────────────────────────────────────────────────────────────────────────
-TEAM AVERAGE                     0.9    88.0%                   5.7          3.8             0
-
-COLLABORATION & QUALITY
-Username              Reviews  Commented  Merge Time  Repos
-──────────────────────────────────────────────────────────────
-alice                      19         14       24.3h      6
-bob                        44         23       12.1h      3
-carol                      13          4       18.7h      5
-```
-
-The Excel file contains the same data with styled headers, alternating row colors, and a team average row -- ready to share.
-
 ### Multiple Organizations
 
-For more than one organization, create one profile folder per organization. Profile names are local labels you choose; they do not need to match the organization name. Each profile can also contain `api.txt` when the organization is hosted on GitHub Enterprise:
+Each organization profile lives in `profiles/<profile-name>/` and contains `org.txt` and `team.txt`. Profile names are local labels. GitHub.com uses its API by default; for GitHub Enterprise, add `api.txt` with the HTTPS API base URL (for example, `https://github.example.com/api/v3`). Put only the organization name, not its web URL, in `org.txt`.
 
 ```bash
 mkdir -p ~/github-analytics-service/profiles/company-a ~/github-analytics-service/profiles/company-b
@@ -148,22 +118,14 @@ printf 'company-a\n' > ~/github-analytics-service/profiles/company-a/org.txt
 printf 'company-b\n' > ~/github-analytics-service/profiles/company-b/org.txt
 ```
 
-GitHub.com profiles use `https://api.github.com` automatically. For a GitHub Enterprise Server organization such as `https://github.example.com/tc`, create `profiles/enterprise-tc/api.txt` with:
-
-```text
-https://github.example.com/api/v3
-```
-
-The Enterprise profile's `org.txt` should contain `tc`, not the full URL.
-
-Create a separate `team.txt` in each profile using the team format below. Tokens are never saved by the tool. The token variable uses the profile name: replace non-alphanumeric characters with `_`, uppercase it, and add `GITHUB_TOKEN_`. For example, profile `enterprise-tc` uses `GITHUB_TOKEN_ENTERPRISE_TC`:
+Tokens are not saved. Set `GITHUB_TOKEN_<PROFILE>` (uppercase the profile name and replace punctuation with `_`) or enter it when prompted. For example:
 
 ```bash
 export GITHUB_TOKEN_COMPANY_A='token-for-company-a'
 export GITHUB_TOKEN_ENTERPRISE_TC='token-for-enterprise-tc'
 ```
 
-Run with a profile explicitly, or omit `--profile` to choose interactively when multiple profiles exist:
+Run a profile explicitly, or omit `--profile` to choose interactively:
 
 ```bash
 cd ~/github-analytics-service
@@ -171,23 +133,7 @@ python3 github_stats.py --profile company-a 90
 python3 github_stats.py --profile company-b 90
 ```
 
-If the profile token environment variable is not set, the tool prompts for that profile's token. The original `org.txt`, `team.txt`, and `GITHUB_TOKEN` setup remains supported as the `default` profile.
-
----
-
-## Day-to-Day Usage
-
-| Task | macOS | Windows |
-|---|---|---|
-| **Run the tool** | Double-click **GitHub Stats** | Double-click **GitHub Stats.bat** |
-| **Run from terminal** | `cd ~/github-analytics-service && python3 github_stats.py` | `cd %USERPROFILE%\github-analytics-service` then `python github_stats.py` |
-| **Custom lookback** | `python3 github_stats.py 30` | `python github_stats.py 30` |
-| **Edit teams** | Edit `~/github-analytics-service/team.txt` or `profiles/<name>/team.txt` | Edit `%USERPROFILE%\github-analytics-service\team.txt` or `profiles\<name>\team.txt` |
-| **Change org** | Edit `~/github-analytics-service/org.txt` or `profiles/<name>/org.txt` | Edit `%USERPROFILE%\github-analytics-service\org.txt` or `profiles\<name>\org.txt` |
-| **Change API host** | Edit `profiles/<name>/api.txt` for GitHub Enterprise | Edit `profiles\<name>\api.txt` for GitHub Enterprise |
-| **Update the tool** | `cd ~/github-analytics-service && git pull` | `cd %USERPROFILE%\github-analytics-service` then `git pull` |
-
-Your `org.txt`, `team.txt`, `api.txt`, and `profiles/` directory are gitignored, so `git pull` won't overwrite them.
+The original root-level `org.txt`, `team.txt`, and `GITHUB_TOKEN` configuration is supported as the `default` profile.
 
 ---
 
@@ -205,108 +151,34 @@ carol
 dave
 ```
 
-Each `[TeamName]` header starts a group. The tool lets you run reports per team or across all teams. Members without a header go into "Ungrouped".
+Each `[TeamName]` header starts a group. Run one team or all teams; usernames before the first header go into `Ungrouped`.
 
 ---
 
 ## Metrics Reference
 
-All times are in **MYT (UTC+8)**. The lookback window ends at **yesterday** (today is never included, matching Flow's convention). Commit metrics use **author date** (when code was written, not when it was rebased/pushed) and exclude merge commits.
+The report window is an inclusive range of calendar dates ending yesterday, calculated in **MYT (UTC+8)**. GitHub PR searches use date-only `created` ranges; commit timestamps are converted to MYT and filtered locally. Commit dates use the Git author timestamp, not the push or merge date.
 
-### Activity
-
-| Metric | What it measures |
+| Report column | Exactly what it measures |
 |---|---|
-| **Total PRs** | PRs opened in the lookback period |
-| **PRs / Working Day** | PRs per weekday (Mon-Fri) |
-| **Merge Rate %** | Percentage of PRs that were merged |
-| **Total Commits** | Unique non-merge commits authored in the period (default branch + PR branches) |
-| **Commits / Day** | Commits per coding day -- intensity on active days |
-| **Coding Days / Week** | Days per week with at least one commit (only active weeks count) |
-| **Weekend Commits** | Unique non-merge commits on Sat/Sun |
+| **Total PRs** | PRs authored by the member in the organization and created within the window, regardless of whether they are open, closed, or merged. |
+| **PRs / Working Day** | Total PRs divided by Monday-Friday dates in the window. Public holidays are still counted as working days. |
+| **Merged PRs** | In-window PRs that are merged when the report runs. This is current status, not PRs whose merge date falls in the window. |
+| **Merge Rate %** | Merged PRs divided by Total PRs. It is the merged share of the in-window PR cohort as of report time. |
+| **Avg Merge Time (hrs)** | Mean of `merged_at - created_at` for merged PRs created in the window. It is elapsed calendar time; no eligible PRs yields `N/A`. |
+| **Total Commits** | Unique fetched commit SHAs with zero or one parent and an author date in the window. Search results and PR branches are combined to capture commits from squash-merged and open PRs. |
+| **Commits / Day** | Total Commits divided by distinct dates with at least one counted commit. This is intensity per active day, not per calendar day. |
+| **Coding Days / Week** | Active commit dates normalized to a 7-day week; weekends count, zero-commit weeks are omitted, and partial window weeks are normalized. No commits yields `N/A`. |
+| **Weekend Commits** | Unique non-merge commits whose author date in MYT falls on Saturday or Sunday within the window. |
+| **Active Repos** | Distinct repositories represented in the collected commit data. Merge commits and records without an author date can make a repository active even though they are excluded from commit counts or day-based metrics. |
+| **Reviews Given** | Number of PRs created in the window on which GitHub identifies the member as a reviewer. It counts PRs, not review submissions, and the review itself may be outside the window. |
+| **PRs Commented On** | Number of other authors' PRs created in the window on which GitHub identifies the member as a commenter. It counts PRs, not comments, and the comment itself may be outside the window. |
 
-### Collaboration
+The team-average row is the arithmetic mean of each member's displayed metric; it is not recalculated from team totals. `N/A` values are omitted from that average.
 
-| Metric | What it measures |
-|---|---|
-| **Reviews Given** | PRs where the user submitted a review |
-| **PRs Commented On** | Others' PRs where the user left comments |
+Records with no author date can affect Total Commits and Active Repos, but cannot be assigned to a coding day or weekend. `N/A` means a metric cannot be calculated, such as average merge time with no merged PRs or coding days per week with no commits.
 
-### Quality
-
-| Metric | What it measures |
-|---|---|
-| **Avg Merge Time (hrs)** | Hours from PR creation to merge |
-| **Active Repos** | Distinct repos the user committed to |
-
-### Reading the Numbers
-
-- **High Coding Days + low Commits/Day** -- steady, spread-out work
-- **Low Coding Days + high Commits/Day** -- bursty, concentrated sessions
-- **High PRs but low Merge Rate** -- possible review bottleneck
-- **High Reviews Given** -- active code reviewer
-
----
-
-## Formulas
-
-| Metric | Formula |
-|---|---|
-| **PRs / Working Day** | `total_prs / weekdays_in_period` |
-| **Merge Rate %** | `merged_prs / total_prs * 100` |
-| **Total Commits** | `count(unique commits by author date in window, excluding merge commits)` |
-| **Commits / Day** | `total_commits / coding_days` |
-| **Coding Days / Week** | `(coding_days / days_in_active_weeks) * min(7, days_in_active_weeks)` |
-| **Weekend Commits** | `count(non-merge commits where author date falls on Sat/Sun within window)` |
-| **Avg Merge Time (hrs)** | `mean(merged_at - created_at) for each merged PR` |
-| **Active Repos** | `count(distinct repos with commits in window)` |
-| **Reviews Given** | `count(PRs where user submitted a review)` |
-| **PRs Commented On** | `count(others' PRs where user left a comment)` |
-
----
-
-## If installation fails
-
-The installer checks **Git**, **Python 3**, and **pip** first, then installs packages and verifies `requests` and `openpyxl` import correctly. If anything fails, read the error in the terminal — it includes manual recovery steps.
-
-### macOS — manual recovery
-
-```bash
-cd ~/github-analytics-service
-python3 -m pip install -r requirements.txt
-python3 -c "import requests, openpyxl; print('OK')"
-python3 github_stats.py
-```
-
-| Installer message | What to do |
-|---|---|
-| **Git is not installed** | Run `xcode-select --install` or install from [git-scm.com](https://git-scm.com) |
-| **Python 3 is not installed** | Install from [python.org](https://www.python.org/downloads/) |
-| **pip is not available** | Run `python3 -m ensurepip --upgrade` then retry |
-| **Failed to install dependencies** | Run the commands above; copy any pip error (SSL, permission, network) |
-| **Import check failed** | Re-run `python3 -m pip install -r requirements.txt` |
-
-### Windows — manual recovery
-
-```powershell
-cd $env:USERPROFILE\github-analytics-service
-python -m pip install -r requirements.txt
-python -c "import requests, openpyxl; print('OK')"
-python github_stats.py
-```
-
-If `python` is not found, try `py -3` instead of `python` in each command.
-
-| Installer message | What to do |
-|---|---|
-| **Git is not installed** | Install [Git for Windows](https://git-scm.com/download/win), restart PowerShell |
-| **Python 3 not found** | Install from [python.org](https://www.python.org/downloads/) with **Add to PATH** checked |
-| **Failed to install dependencies** | Run the commands above in PowerShell as your normal user |
-| **Import check failed** | Re-run `python -m pip install -r requirements.txt` |
-
-### Desktop shortcut says "Missing dependencies"
-
-Dependencies were not installed or Python changed after install. Run the manual recovery commands for your platform, then try the shortcut again.
+GitHub Search returns at most 1,000 items per query. The tool warns when this limit is reached; metrics based on fetched items may then be incomplete. If a PR-branch request fails, a warning is printed and that PR's commit data may be partial.
 
 ---
 
@@ -314,17 +186,8 @@ Dependencies were not installed or Python changed after install. Run the manual 
 
 | Problem | Solution |
 |---|---|
-| "Token is invalid or expired" | Create a new token at [github.com/settings/tokens](https://github.com/settings/tokens) |
-| "Missing required scope(s): repo" | Edit your token and check the top-level `repo` checkbox |
-| "Cannot access the org" | Authorize SSO for your token (see [Step 1](#step-1--create-a-github-token)) |
-| "Organization not found" | Check `org.txt` — org name must match GitHub exactly |
-| All stats are zero | Token scopes or SSO issue -- check the error messages |
-| Some users show zero | Verify their GitHub username at `github.com/<username>` |
-| Installer or pip errors | See [If installation fails](#if-installation-fails) |
-| `pip: command not found` | Use `python -m pip install -r requirements.txt` (Windows) or `python3 -m pip` (Mac) |
-| `python: command not found` | Install Python and add to PATH; on Windows try `py github_stats.py` |
-| `ModuleNotFoundError: requests` or `openpyxl` | `cd` to install folder and run `pip install -r requirements.txt` |
-| PowerShell script blocked | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` or use `-ExecutionPolicy Bypass` |
-| Git not found (Windows) | Install [Git for Windows](https://git-scm.com/download/win) and restart PowerShell |
-| Rate limit errors | Wait a few minutes and retry |
-| Slow run | Normal for many PRs -- use a shorter lookback or pick a specific team |
+| Token invalid, missing scopes, or no org access | Check `repo` and `read:org` scopes and authorize the token for SAML SSO if required. |
+| Organization not found | Check the organization name in the selected profile's `org.txt`. |
+| All results are zero | Check the selected profile, member usernames, token scopes, and SSO authorization. |
+| Missing `requests` or `openpyxl` | From the install directory, run `python3 -m pip install -r requirements.txt` (Mac) or `python -m pip install -r requirements.txt` (Windows). |
+| Rate limit or slow run | Wait and retry, shorten the lookback, or run a smaller team. |
