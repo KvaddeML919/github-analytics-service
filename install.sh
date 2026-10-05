@@ -228,21 +228,35 @@ done
 echo ""
 
 # --- Create desktop shortcut ---
-cat > "$SHORTCUT" << 'LAUNCHER'
+# Bake in the python3 this installer just verified, so the shortcut uses the
+# same interpreter even if Finder's double-click PATH differs from Terminal's
+# (e.g. Homebrew/pyenv installs not on the GUI login shell's PATH).
+PYTHON_BIN="$(command -v python3)"
+
+cat > "$SHORTCUT" << LAUNCHER
 #!/bin/bash
-cd "$HOME/github-analytics-service" || { echo "Error: $HOME/github-analytics-service not found. Re-run the installer."; read -r -p "Press Enter to close..."; exit 1; }
+cd "\$HOME/github-analytics-service" || { echo "Error: \$HOME/github-analytics-service not found. Re-run the installer."; read -r -p "Press Enter to close..."; exit 1; }
 echo ""
 echo "========================================="
 echo "  GitHub Team Stats"
 echo "========================================="
 echo ""
-python3 -c "import requests, openpyxl" 2>/dev/null || {
+PYTHON_BIN="$PYTHON_BIN"
+if [ ! -x "\$PYTHON_BIN" ]; then
+    PYTHON_BIN="\$(command -v python3)"
+fi
+if [ -z "\$PYTHON_BIN" ]; then
+    echo "Error: python3 not found. Install Python 3 or re-run the installer."
+    read -r -p "Press Enter to close..."
+    exit 1
+fi
+"\$PYTHON_BIN" -c "import requests, openpyxl" 2>/dev/null || {
     echo "Error: Missing dependencies. Run in Terminal:"
     echo "  cd ~/github-analytics-service && python3 -m pip install -r requirements.txt"
     read -r -p "Press Enter to close..."
     exit 1
 }
-python3 github_stats.py
+"\$PYTHON_BIN" github_stats.py
 echo ""
 echo "-----------------------------------------"
 read -r -p "Press Enter to close..."

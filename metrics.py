@@ -23,7 +23,7 @@ def _commit_author_date(item: Dict[str, Any]) -> Optional[date]:
         return None
     try:
         return parse_iso(date_str).astimezone(MYT).date()
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, AttributeError):
         return None
 
 

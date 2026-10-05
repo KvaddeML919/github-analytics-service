@@ -565,6 +565,22 @@ def _collect_user_stats(
     return result
 
 
+def _dedupe_usernames(usernames: List[str]) -> List[str]:
+    """Remove duplicate usernames while preserving first-seen order.
+
+    A username listed twice (e.g. on multiple teams) would otherwise be
+    fetched and processed twice, wasting API calls and double-counting
+    that member in the "All" sheet and team averages.
+    """
+    seen: set = set()
+    deduped: List[str] = []
+    for username in usernames:
+        if username not in seen:
+            seen.add(username)
+            deduped.append(username)
+    return deduped
+
+
 def _dedupe_pr_items(items: List[GitHubItem]) -> List[GitHubItem]:
     """Deduplicate PR items by URL using efficient dict-based approach."""
     if not items:
@@ -613,7 +629,7 @@ def _filter_commits_by_window(
             dt = parse_iso(date_str).astimezone(MYT).date()
             if since_date <= dt <= end_date:
                 filtered.append(item)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, AttributeError):
             # Include items with invalid dates to avoid losing data
             filtered.append(item)
 
@@ -686,6 +702,7 @@ def main() -> None:
     validate_token(token, org, api_base)
     _, teams = load_team_members(team_file)
     team_members, run_teams = choose_team(teams)
+    team_members = _dedupe_usernames(team_members)
     lookback_days = get_lookback_days()
 
     headers: Headers = {

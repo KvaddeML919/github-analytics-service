@@ -279,6 +279,7 @@ def fetch_pr_branch_commits(
         repo_name = repo_match.group(1) if repo_match else None
         try:
             result = []
+            raw_total = 0
             page = 1
             while True:
                 resp = requests.get(
@@ -295,6 +296,7 @@ def fetch_pr_branch_commits(
                     break
 
                 page_commits = resp.json()
+                raw_total += len(page_commits)
                 for commit in page_commits:
                     author = commit.get("author")
                     if author is None or author.get("login", "").lower() != uname:
@@ -306,6 +308,14 @@ def fetch_pr_branch_commits(
                 if len(page_commits) < config.commits_per_page:
                     break
                 page += 1
+
+            if raw_total >= config.pr_commits_hard_cap:
+                pr_desc = repo_name or pr_url
+                warning(
+                    f"    Warning: PR {pr_desc} hit GitHub's "
+                    f"{config.pr_commits_hard_cap}-commit limit on the PR commits "
+                    "endpoint; its commit data may be incomplete."
+                )
 
             return result
         except requests.exceptions.RequestException as exc:

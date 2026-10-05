@@ -73,6 +73,36 @@ class SearchRegressionTests(unittest.TestCase):
             with self.assertRaises(requests.HTTPError):
                 github_api._search_request("https://api.github.com/search/issues", {}, {})
 
+    def test_pr_branch_commits_warn_on_250_commit_cap(self):
+        def fake_get(_url, params, **_kwargs):
+            page = params["page"]
+            # GitHub caps this endpoint at 250 regardless of what the PR
+            # actually contains, so page 3 comes back short even though
+            # there would be more commits on a real oversized PR.
+            if page == 3:
+                commits = [{"sha": f"sha-{i}", "author": {"login": "alice"}} for i in range(50)]
+            else:
+                commits = [{"sha": f"sha-{page}-{i}", "author": {"login": "alice"}} for i in range(100)]
+            return FakeResponse(payload=commits)
+
+        pr_items = [{
+            "pull_request": {
+                "url": "https://api.github.com/repos/acme/repo/pulls/1",
+            },
+        }]
+        with (
+            patch.object(github_api.config, "pr_branch_workers", 1),
+            patch.object(github_api.requests, "get", side_effect=fake_get),
+            patch.object(github_api, "info"),
+            patch.object(github_api, "warning") as warning,
+        ):
+            commits = github_api.fetch_pr_branch_commits(pr_items, {}, "alice")
+
+        self.assertEqual(len(commits), 250)
+        self.assertTrue(
+            any("250-commit limit" in call.args[0] for call in warning.call_args_list)
+        )
+
     def test_pr_branch_commits_skip_unlinked_author(self):
         def fake_get(_url, params, **_kwargs):
             commits = [
@@ -190,6 +220,31 @@ class MalformedCommitDateTests(unittest.TestCase):
 
         self.assertEqual(total_coding_days, 1)
         self.assertIsNotNone(avg)
+
+    def test_non_string_author_date_is_skipped_not_raised(self):
+        commit_items = [
+            {
+                "commit": {"author": {"date": 12345}},
+                "parents": [{"sha": "parent-1"}],
+            },
+            {
+                "commit": {"author": {"date": "2026-10-02T09:00:00+08:00"}},
+                "parents": [{"sha": "parent-1"}],
+            },
+        ]
+
+        avg, total_coding_days = compute_coding_day_stats(
+            commit_items, date(2026, 9, 28), date(2026, 10, 4),
+        )
+
+        self.assertEqual(total_coding_days, 1)
+        self.assertIsNotNone(avg)
+
+
+class DuplicateUsernameTests(unittest.TestCase):
+    def test_dedupe_usernames_preserves_order_and_removes_repeats(self):
+        result = github_stats._dedupe_usernames(["alice", "bob", "alice", "carol", "bob"])
+        self.assertEqual(result, ["alice", "bob", "carol"])
 
 
 if __name__ == "__main__":
