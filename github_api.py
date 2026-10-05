@@ -297,7 +297,7 @@ def fetch_pr_branch_commits(
                 page_commits = resp.json()
                 for commit in page_commits:
                     author = commit.get("author")
-                    if author is not None and author.get("login", "").lower() != uname:
+                    if author is None or author.get("login", "").lower() != uname:
                         continue
                     if repo_name:
                         commit.setdefault("repository", {})["full_name"] = repo_name

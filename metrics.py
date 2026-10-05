@@ -16,12 +16,15 @@ def parse_iso(ts: str) -> datetime:
 def _commit_author_date(item: Dict[str, Any]) -> Optional[date]:
     """Extract the author date from a commit item, converted to MYT.
 
-    Returns None if the date field is missing.
+    Returns None if the date field is missing or malformed.
     """
     date_str = item.get("commit", {}).get("author", {}).get("date")
     if not date_str:
         return None
-    return parse_iso(date_str).astimezone(MYT).date()
+    try:
+        return parse_iso(date_str).astimezone(MYT).date()
+    except (ValueError, TypeError):
+        return None
 
 
 def compute_avg_merge_hours(merged_items: List[Dict[str, Any]]) -> Optional[float]:

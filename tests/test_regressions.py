@@ -7,7 +7,7 @@ import requests
 
 import github_api
 import github_stats
-from metrics import compute_weekend_commits
+from metrics import compute_coding_day_stats, compute_weekend_commits
 from output import print_console_tables
 
 
@@ -72,6 +72,30 @@ class SearchRegressionTests(unittest.TestCase):
         ):
             with self.assertRaises(requests.HTTPError):
                 github_api._search_request("https://api.github.com/search/issues", {}, {})
+
+    def test_pr_branch_commits_skip_unlinked_author(self):
+        def fake_get(_url, params, **_kwargs):
+            commits = [
+                {"sha": "sha-mine", "author": {"login": "alice"}},
+                {"sha": "sha-unlinked", "author": None},
+                {"sha": "sha-other", "author": {"login": "bob"}},
+            ]
+            return FakeResponse(payload=commits)
+
+        pr_items = [{
+            "pull_request": {
+                "url": "https://api.github.com/repos/acme/repo/pulls/1",
+            },
+        }]
+        with (
+            patch.object(github_api.config, "commits_per_page", 100),
+            patch.object(github_api.config, "pr_branch_workers", 1),
+            patch.object(github_api.requests, "get", side_effect=fake_get),
+            patch.object(github_api, "info"),
+        ):
+            commits = github_api.fetch_pr_branch_commits(pr_items, {}, "alice")
+
+        self.assertEqual([commit["sha"] for commit in commits], ["sha-mine"])
 
     def test_pr_branch_commits_are_fully_paginated(self):
         pages = []
@@ -145,6 +169,27 @@ class WeekendCommitMetricTests(unittest.TestCase):
 
         output_lines = [call.args[0] for call in info.call_args_list]
         self.assertTrue(any("Weekend Commits" in line for line in output_lines))
+
+
+class MalformedCommitDateTests(unittest.TestCase):
+    def test_malformed_author_date_is_skipped_not_raised(self):
+        commit_items = [
+            {
+                "commit": {"author": {"date": "not-a-real-timestamp"}},
+                "parents": [{"sha": "parent-1"}],
+            },
+            {
+                "commit": {"author": {"date": "2026-10-02T09:00:00+08:00"}},
+                "parents": [{"sha": "parent-1"}],
+            },
+        ]
+
+        avg, total_coding_days = compute_coding_day_stats(
+            commit_items, date(2026, 9, 28), date(2026, 10, 4),
+        )
+
+        self.assertEqual(total_coding_days, 1)
+        self.assertIsNotNone(avg)
 
 
 if __name__ == "__main__":
