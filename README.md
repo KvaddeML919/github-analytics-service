@@ -164,10 +164,10 @@ The report window is an inclusive range of calendar dates ending yesterday, calc
 | **Total PRs** | PRs authored by the member in the organization and created within the window, regardless of whether they are open, closed, or merged. |
 | **PRs / Working Day** | Total PRs divided by Monday-Friday dates in the window. Public holidays are still counted as working days. |
 | **Merged PRs** | In-window PRs that are merged when the report runs. This is current status, not PRs whose merge date falls in the window. |
-| **Merge Rate %** | Merged PRs divided by Total PRs. It is the merged share of the in-window PR cohort as of report time. |
+| **Merge Rate %** | Merged PRs divided by Total PRs. The share of this window's PRs that are merged as of right now. |
 | **Avg Merge Time (hrs)** | Mean of `merged_at - created_at` for merged PRs created in the window. It is elapsed calendar time; no eligible PRs yields `N/A`. |
 | **Total Commits** | Unique fetched commit SHAs with zero or one parent and an author date in the window. Search results and PR branches are combined to capture commits from squash-merged and open PRs. |
-| **Commits / Day** | Total Commits divided by distinct dates with at least one counted commit. This is intensity per active day, not per calendar day. |
+| **Commits / Day** | Total Commits divided by the number of days with at least one commit. This is commits per *active* day, not per calendar day. |
 | **Coding Days / Week** | Active commit dates normalized to a 7-day week; weekends count, zero-commit weeks are omitted, and partial window weeks are normalized. No commits yields `N/A`. |
 | **Weekend Commits** | Unique non-merge commits whose author date in MYT falls on Saturday or Sunday within the window. |
 | **Active Repos** | Distinct repositories represented in the collected commit data. Merge commits and records without an author date can make a repository active even though they are excluded from commit counts or day-based metrics. |
@@ -178,7 +178,7 @@ The team-average row is the arithmetic mean of each member's displayed metric; i
 
 Records with no author date can affect Total Commits and Active Repos, but cannot be assigned to a coding day or weekend. `N/A` means a metric cannot be calculated, such as average merge time with no merged PRs or coding days per week with no commits.
 
-GitHub Search returns at most 1,000 items per query. The tool warns when this limit is reached; metrics based on fetched items may then be incomplete. If a PR-branch request fails, a warning is printed and that PR's commit data may be partial.
+GitHub Search returns at most 1,000 items per query, and GitHub also caps any single PR's commit list at 250. The tool warns when either limit is hit; metrics based on fetched items may then be incomplete. If a PR-branch request fails, a warning is printed and that PR's commit data may be partial.
 
 ---
 
