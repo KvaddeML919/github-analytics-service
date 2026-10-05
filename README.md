@@ -223,7 +223,7 @@ All times are in **MYT (UTC+8)**. The lookback window ends at **yesterday** (tod
 | **Total Commits** | Unique non-merge commits authored in the period (default branch + PR branches) |
 | **Commits / Day** | Commits per coding day -- intensity on active days |
 | **Coding Days / Week** | Days per week with at least one commit (only active weeks count) |
-| **Weekend Commits** | Commits on Sat/Sun |
+| **Weekend Commits** | Unique non-merge commits on Sat/Sun |
 
 ### Collaboration
 
@@ -257,7 +257,7 @@ All times are in **MYT (UTC+8)**. The lookback window ends at **yesterday** (tod
 | **Total Commits** | `count(unique commits by author date in window, excluding merge commits)` |
 | **Commits / Day** | `total_commits / coding_days` |
 | **Coding Days / Week** | `(coding_days / days_in_active_weeks) * min(7, days_in_active_weeks)` |
-| **Weekend Commits** | `count(commits where author date falls on Sat/Sun within window)` |
+| **Weekend Commits** | `count(non-merge commits where author date falls on Sat/Sun within window)` |
 | **Avg Merge Time (hrs)** | `mean(merged_at - created_at) for each merged PR` |
 | **Active Repos** | `count(distinct repos with commits in window)` |
 | **Reviews Given** | `count(PRs where user submitted a review)` |

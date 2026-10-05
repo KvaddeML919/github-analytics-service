@@ -124,7 +124,7 @@ def print_console_tables(results: List[Row], team_avg: Optional[Row] = None) -> 
     info("ACTIVITY")
     hdr1 = (f"{'Username':<20} {'PRs':>6} {'PRs/Day':>8} {'Merged%':>8} "
             f"{'Commits':>8} {'Commits/Day':>12} {'Coding Days':>12} "
-            f"{'Wknd Commits':>13}")
+            f"{'Weekend Commits':>15}")
     info(hdr1)
     info("─" * len(hdr1))
 

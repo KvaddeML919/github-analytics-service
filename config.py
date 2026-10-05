@@ -26,7 +26,7 @@ class Config:
 
     # GitHub API Limits
     github_search_results_limit: int = 1000  # GitHub's hard limit
-    commits_per_page: int = 250  # PR commits endpoint limit
+    commits_per_page: int = 100  # GitHub REST API maximum
     search_results_per_page: int = 100
 
     # File Paths

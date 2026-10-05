@@ -87,9 +87,11 @@ def compute_coding_day_stats(
 def compute_weekend_commits(
     commit_items: List[Dict[str, Any]], start_date: date, end_date: date,
 ) -> Tuple[int, float]:
-    """Return (total_weekend_commits, avg_commits_per_weekend) in MYT."""
+    """Return non-merge weekend commit count and average per weekend in MYT."""
     weekend_commit_count = 0
     for item in commit_items:
+        if len(item.get("parents", [])) > 1:
+            continue
         dt = _commit_author_date(item)
         if dt and start_date <= dt <= end_date and dt.weekday() >= 5:
             weekend_commit_count += 1

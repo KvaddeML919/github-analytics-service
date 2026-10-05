@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pull PR, commit, and collaboration stats for team members from a GitHub org."""
 
+import getpass
 import os
 import re
 import sys
@@ -81,7 +82,7 @@ def get_token(profile_name: str, use_legacy_token: bool) -> str:
         info(f"No token environment variable found for profile '{profile_name}'.")
         info("Create a Classic token at https://github.com/settings/tokens")
         info("Required scopes: repo, read:org  (+ SSO authorize for your org)\n")
-        token = input(f"Paste the GitHub token for '{profile_name}': ").strip()
+        token = getpass.getpass(f"Paste the GitHub token for '{profile_name}': ").strip()
         if not token:
             error("Error: No token provided.")
             sys.exit(1)
@@ -413,27 +414,27 @@ def choose_team(teams: Teams) -> Tuple[List[str], Teams]:
 # ---------------------------------------------------------------------------
 
 def _collect_api_data(
-    username: str, since_date: str, headers: Headers, org: str, index: int, total: int
+    username: str, since_date: str, end_date: str, headers: Headers, org: str, index: int, total: int
 ) -> Tuple[int, List[GitHubItem], List[GitHubItem], List[GitHubItem], List[GitHubItem],
            int, List[GitHubItem], int, int]:
     """Collect raw data from GitHub API for a user."""
     print("  Fetching search data ...", end="", flush=True)
-    pr_count = get_pr_count(username, since_date, headers, org)
+    pr_count = get_pr_count(username, since_date, end_date, headers, org)
     delay()
 
-    merged_count, merged_items = get_merged_prs(username, since_date, headers, org)
+    merged_count, merged_items = get_merged_prs(username, since_date, end_date, headers, org)
     delay()
 
-    _, unmerged_items = get_unmerged_prs(username, since_date, headers, org)
+    _, unmerged_items = get_unmerged_prs(username, since_date, end_date, headers, org)
     delay()
 
     commit_count, commit_items = get_commits_with_items(username, since_date, headers, org)
     delay()
 
-    reviews_given = get_reviews_given(username, since_date, headers, org)
+    reviews_given = get_reviews_given(username, since_date, end_date, headers, org)
     delay()
 
-    prs_commented = get_prs_commented_on(username, since_date, headers, org)
+    prs_commented = get_prs_commented_on(username, since_date, end_date, headers, org)
     delay()
 
     _, old_merged_items = get_old_merged_prs(username, since_date, headers, org)
@@ -529,6 +530,7 @@ def _collect_user_stats(
     index: int,
     total: int,
     since_date: str,
+    end_date: str,
     since: datetime,
     end: datetime,
     working_days: int,
@@ -541,7 +543,7 @@ def _collect_user_stats(
     # Collect raw API data
     (pr_count, merged_items, unmerged_items, old_merged_items, old_open_items,
      merged_count, commit_items, reviews_given, prs_commented) = _collect_api_data(
-        username, since_date, headers, org, index, total
+          username, since_date, end_date, headers, org, index, total
     )
 
     # Process commits from search and PR branches
@@ -716,7 +718,7 @@ def main() -> None:
     results: List[UserRow] = []
     for i, username in enumerate(team_members, 1):
         result = _collect_user_stats(
-            username, i, total, since_date, since, end, working_days, headers, org,
+            username, i, total, since_date, end_date, since, end, working_days, headers, org,
         )
         results.append(result)
 

@@ -61,7 +61,9 @@ def _search_request(
         req_headers["Accept"] = accept
     params = {**params, "per_page": per_page, "page": 1}
 
+    last_response: Optional[requests.Response] = None
     for attempt in range(1, config.max_retries + 1):
+        last_response = None
         try:
             resp = requests.get(url, params=params, headers=req_headers, timeout=config.request_timeout_seconds)
         except requests.exceptions.Timeout:
@@ -76,20 +78,20 @@ def _search_request(
             error(f"    Request error (attempt {attempt}/{config.max_retries}): {exc}")
             time.sleep(5 * attempt)
             continue
+        last_response = resp
 
         if resp.status_code == 403:
             _handle_rate_limit(resp, attempt, config.max_retries)
             continue
-
-        if resp.status_code == 422:
-            return 0, []
 
         resp.raise_for_status()
         data = resp.json()
         return data.get("total_count", 0), data.get("items", [])
 
     error("    Max retries exceeded")
-    return 0, []
+    if last_response is not None:
+        last_response.raise_for_status()
+    raise requests.exceptions.RetryError("Max retries exceeded for GitHub Search API request")
 
 
 def _search_count(
@@ -119,36 +121,47 @@ def _search_all_items(
         params = {"q": query, "per_page": per_page, "page": page}
 
         success = False
+        last_response: Optional[requests.Response] = None
         for attempt in range(1, config.max_retries + 1):
+            last_response = None
             try:
                 resp = requests.get(url, params=params, headers=req_headers, timeout=config.request_timeout_seconds)
             except requests.exceptions.RequestException as exc:
                 error(f"    Request error (attempt {attempt}/{config.max_retries}): {exc}")
                 time.sleep(5 * attempt)
                 continue
+            last_response = resp
             if resp.status_code == 403:
                 _handle_rate_limit(resp, attempt, config.max_retries)
                 continue
-            if resp.status_code == 422:
-                return 0, []
             resp.raise_for_status()
             success = True
             break
 
         if not success:
             error("    Max retries exceeded")
-            break
+            if last_response is not None:
+                last_response.raise_for_status()
+            raise requests.exceptions.RetryError("Max retries exceeded for GitHub Search API request")
 
         data = resp.json()
         total_count = data.get("total_count", 0)
         items = data.get("items", [])
         all_items.extend(items)
 
-        if len(all_items) >= total_count or len(items) < per_page:
+        result_limit = min(total_count, config.github_search_results_limit)
+        if len(all_items) >= result_limit or len(items) < per_page:
             break
 
         page += 1
         delay()
+
+    if total_count > config.github_search_results_limit:
+        warning(
+            f"    Search returned {total_count} results; GitHub limits search pagination "
+            f"to {config.github_search_results_limit}. Fetched {len(all_items)} items; "
+            "item-based metrics may be incomplete."
+        )
 
     return total_count, all_items
 
@@ -162,29 +175,29 @@ def delay() -> None:
 # Per-user query functions
 # ---------------------------------------------------------------------------
 
-def get_pr_count(username: str, since: str, headers: Headers, org: str) -> int:
+def get_pr_count(username: str, since: str, until: str, headers: Headers, org: str) -> int:
     """Count PRs opened by the user in the lookback window."""
     return _search_count(
         "/search/issues",
-        f"type:pr author:{username} org:{org} created:>={since}",
+        f"type:pr author:{username} org:{org} created:{since}..{until}",
         headers,
     )
 
 
-def get_merged_prs(username: str, since: str, headers: Headers, org: str) -> SearchResult:
+def get_merged_prs(username: str, since: str, until: str, headers: Headers, org: str) -> SearchResult:
     """Return (merged_count, all merged PR items) with pagination."""
     return _search_all_items(
         "/search/issues",
-        f"type:pr author:{username} org:{org} is:merged created:>={since}",
+        f"type:pr author:{username} org:{org} is:merged created:{since}..{until}",
         headers,
     )
 
 
-def get_unmerged_prs(username: str, since: str, headers: Headers, org: str) -> SearchResult:
+def get_unmerged_prs(username: str, since: str, until: str, headers: Headers, org: str) -> SearchResult:
     """Return (count, items) for all unmerged PRs (open, draft, and closed-without-merging)."""
     return _search_all_items(
         "/search/issues",
-        f"type:pr author:{username} org:{org} is:unmerged created:>={since}",
+        f"type:pr author:{username} org:{org} is:unmerged created:{since}..{until}",
         headers,
     )
 
@@ -217,20 +230,20 @@ def get_commits_with_items(username: str, since: str, headers: Headers, org: str
     )
 
 
-def get_reviews_given(username: str, since: str, headers: Headers, org: str) -> int:
+def get_reviews_given(username: str, since: str, until: str, headers: Headers, org: str) -> int:
     """Count PRs where the user submitted a review in the lookback window."""
     return _search_count(
         "/search/issues",
-        f"type:pr reviewed-by:{username} org:{org} created:>={since}",
+        f"type:pr reviewed-by:{username} org:{org} created:{since}..{until}",
         headers,
     )
 
 
-def get_prs_commented_on(username: str, since: str, headers: Headers, org: str) -> int:
+def get_prs_commented_on(username: str, since: str, until: str, headers: Headers, org: str) -> int:
     """Count other authors' PRs where this user left comments."""
     return _search_count(
         "/search/issues",
-        f"type:pr commenter:{username} -author:{username} org:{org} created:>={since}",
+        f"type:pr commenter:{username} -author:{username} org:{org} created:{since}..{until}",
         headers,
     )
 
@@ -265,22 +278,36 @@ def fetch_pr_branch_commits(
         repo_match = re.match(r".*/repos/([^/]+/[^/]+)/pulls/", pr_url)
         repo_name = repo_match.group(1) if repo_match else None
         try:
-            resp = requests.get(
-                f"{pr_url}/commits",
-                headers=headers,
-                params={"per_page": config.commits_per_page},
-                timeout=config.request_timeout_seconds,
-            )
-            if resp.status_code == 200:
-                result = []
-                for c in resp.json():
-                    author = c.get("author")
+            result = []
+            page = 1
+            while True:
+                resp = requests.get(
+                    f"{pr_url}/commits",
+                    headers=headers,
+                    params={"per_page": config.commits_per_page, "page": page},
+                    timeout=config.request_timeout_seconds,
+                )
+                if resp.status_code != 200:
+                    warning(
+                        f"    Warning: failed to fetch commits for PR "
+                        f"(HTTP {resp.status_code})."
+                    )
+                    break
+
+                page_commits = resp.json()
+                for commit in page_commits:
+                    author = commit.get("author")
                     if author is not None and author.get("login", "").lower() != uname:
                         continue
                     if repo_name:
-                        c.setdefault("repository", {})["full_name"] = repo_name
-                    result.append(c)
-                return result
+                        commit.setdefault("repository", {})["full_name"] = repo_name
+                    result.append(commit)
+
+                if len(page_commits) < config.commits_per_page:
+                    break
+                page += 1
+
+            return result
         except requests.exceptions.RequestException as exc:
             warning(f"    Warning: failed to fetch commits for PR: {exc}")
         return []

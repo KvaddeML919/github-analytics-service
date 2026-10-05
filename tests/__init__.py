@@ -1,0 +1,1 @@
+"""Regression tests for GitHub Analytics Service."""
